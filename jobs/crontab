@@ -1,0 +1,26 @@
+# Every one minute.
+* * * * *	~/app_monitor.sh ~/certwatch/linting/do_some_linting.sh
+* * * * *	~/app_monitor.sh ~/certwatch/jobs/gin_clean_pending_list.sh
+
+# Every ten minutes.
+*/10 * * * *	~/app_monitor.sh ~/certwatch/jobs/determine_ca_trust_purposes.sh
+*/10 * * * *	~/app_monitor.sh ~/certwatch/google/update_google_uptime.sh
+*/10 * * * *	~/app_monitor.sh ~/certwatch/jobs/update_bugzilla_bugs.sh
+2-59/10 * * * *	~/app_monitor.sh ~/certwatch/ccadb/update_ccadb_certificates.sh
+
+# Every one hour.
+0 * * * *	~/restart_app_monitor.sh ~/certwatch/ct_monitor/bin/ct_monitor
+0 * * * *	~/restart_app_monitor.sh ~/certwatch/cert_processor/bin/cert_processor
+0 * * * *	~/restart_app_monitor.sh ~/certwatch/crl_monitor/bin/crl_monitor
+0 * * * *	~/restart_app_monitor.sh ~/certwatch/ocsp_monitor/bin/ocsp_monitor
+0 * * * *	~/restart_app_monitor.sh ~/certwatch/caissuer_monitor/bin/caissuer_monitor
+0 * * * *	~/app_monitor.sh ~/certwatch/jobs/regular_maintenance.sh
+0 * * * *	~/app_monitor.sh ~/certwatch/jobs/update_browser_revocations.sh
+0 * * * *	~/app_monitor.sh ~/certwatch/ccadb/update_caowner_information.sh
+5 * * * *	~/app_monitor.sh ~/certwatch/jobs/update_accepted_roots.sh
+
+# Every one day.
+0 3 * * *	~/app_monitor.sh ~/certwatch/mozilla_telemetry/update_mozilla_cert_validation_success.sh
+
+# Every one week.
+#0 3 * * sun	?
