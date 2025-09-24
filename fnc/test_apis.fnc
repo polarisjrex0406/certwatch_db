@@ -3623,6 +3623,19 @@ BEGIN
                 END IF;
             END IF;
 
+            t_output := t_output ||
+                ', "certificate_fingerprints": {' ||
+                '"sha256": "' || coalesce(upper(encode(t_certificateSHA256, 'hex')), '') || '"' ||
+                ', "sha1": "' || coalesce(upper(encode(t_certificateSHA1, 'hex')), '') || '"}';
+
+            IF t_type = 'Certificate ASN.1' THEN
+            ELSIF t_type = 'Certification Graph' THEN
+            ELSIF t_type = 'PKI Hierarchy' THEN
+            ELSIF t_type = 'pv-certificate-viewer' THEN
+            ELSE
+                t_output := t_output || ', "certificate": "' || coalesce(t_text, '') || '"';
+            END IF;
+
             t_output := t_output || '}';
         END IF;
 
