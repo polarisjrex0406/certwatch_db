@@ -195,7 +195,7 @@ BEGIN
 
 			IF t_type = 'Download Certificate' THEN
 				RETURN download_cert(t_value);
-			ELSIF t_type IN ('Certificate ASN.1', 'Certification Graph', 'PKI Hierarchy', 'pv-certificate-viewer', 'CA ID') THEN
+			ELSIF t_type IN ('Certificate ASN.1', 'Certification Graph', 'PKI Hierarchy', 'pv-certificate-viewer') THEN
 				BEGIN
 					EXIT WHEN t_value::bigint IS NOT NULL;
 				EXCEPTION
@@ -204,7 +204,7 @@ BEGIN
 				END;
 			ELSIF t_type = 'Graph Nodes' THEN
 				RETURN certification_graph(t_value);
-			ELSIF t_type IN ('CT Entry ID', 'ID') THEN
+			ELSIF t_type IN ('CT Entry ID', 'ID', 'CA ID') THEN
 				BEGIN
 					IF t_value::bigint IS NOT NULL THEN
 						t_isJSONOutputSupported := TRUE;
@@ -3640,748 +3640,862 @@ BEGIN
         END IF;
 
 	ELSIF t_type IN ('CA ID', 'CA Name') THEN
-		t_output := t_output || ' <SPAN class="whiteongrey">CA Search</SPAN>
-            <BR><BR>
-            ';
+        IF t_outputType = 'html' THEN
+            t_output := t_output || ' <SPAN class="whiteongrey">CA Search</SPAN>
+                <BR><BR>
+                ';
 
-		-- Determine whether to use a reverse index (if available).
-		IF position('%' IN t_value) != 0 THEN
-			t_useReverseIndex := (
-				position('%' IN t_value) < position('%' IN reverse(t_value))
-			);
-		END IF;
+            -- Determine whether to use a reverse index (if available).
+            IF position('%' IN t_value) != 0 THEN
+                t_useReverseIndex := (
+                    position('%' IN t_value) < position('%' IN reverse(t_value))
+                );
+            END IF;
 
-		t_output := t_output ||
-            '<TABLE>
-            <TR>
-                <TH class="outer">Criteria</TH>
-                <TD class="outer">Type: ' || html_escape(t_type)
-                                    || '&nbsp;&nbsp;&nbsp;&nbsp;Match: ' || html_escape(t_match)
-                                    || '&nbsp;&nbsp;&nbsp;&nbsp;Search: ' || ' ''' || html_escape(t_value) || '''</TD>
-            </TR>
-            </TABLE>
-            <BR>
-            ';
-
-		-- Search for a specific CA.
-		IF t_type = 'CA ID' THEN
-			SELECT ca.ID, ca.NAME, ca.PUBLIC_KEY, ca.NUM_ISSUED, ca.NUM_EXPIRED
-				INTO t_caID, t_caName, t_caPublicKey, t_numIssued, t_numExpired
-				FROM ca
-				WHERE ca.ID = t_value::integer;
-
-			IF t_caName IS NULL THEN
-				RAISE no_data_found USING MESSAGE = 'CA not found';
-			ELSE
-				t_text := html_escape(t_caName);
-			END IF;
-
-			SELECT min(cac.CERTIFICATE_ID)
-				INTO t_certificateID
-				FROM ca_certificate cac
-				WHERE cac.CA_ID = t_caID;
-			IF t_certificateID IS NOT NULL THEN
-				SELECT html_escape(x509_print(c.CERTIFICATE, NULL, 7999))
-					INTO t_text
-					FROM certificate c
-					WHERE c.ID = t_certificateID;
-				t_text := replace(t_text, '        Subject:', 'Subject:');
-				t_text := replace(t_text, chr(10) || '        ', '<BR>');
-				t_text := replace(t_text, ' ', '&nbsp;');
-			END IF;
-
-			t_showMozillaDisclosure := (',' || t_opt || ',') LIKE '%,mozilladisclosure,%';
-			t_temp := '';
-			IF t_opt != '' THEN
-				t_temp := '&opt=' || RTRIM(t_opt, ',');
-			END IF;
-
-			t_output := t_output ||
+            t_output := t_output ||
                 '<TABLE>
                 <TR>
-                    <TH class="outer">crt.sh CA ID</TH>
-                    <TD class="outer">' || t_caID::text || '</TD>
-                </TR>
-                <TR>
-                    <TH class="outer">CA Name/Key</TH>
-                    <TD class="text">' || t_text || '</TD>
-                </TR>
-                <TR>
-                    <TH class="outer">Certificates</TH>
-                    <TD class="outer">
-                <TABLE class="options" style="margin-left:0px">
-                <TR>
-                ';
-			IF t_showMozillaDisclosure THEN
-				t_output := t_output ||
-                    '    <TH style="white-space:nowrap">Mozilla Disclosure<BR><SPAN class="small">(id-kp-serverAuth)</SPAN></TH>
-                    ';
-			END IF;
-			t_output := t_output ||
-                '    <TH style="white-space:nowrap">crt.sh ID</TH>
-                    <TH style="white-space:nowrap">Not Before</TH>
-                    <TH style="white-space:nowrap">Not After</TH>
-                    <TH>Issuer Name</TH>
-                </TR>
-                ';
-			FOR l_record IN (
-						SELECT x509_issuerName(c.CERTIFICATE)	ISSUER_NAME,
-								c.ID,
-								c.ISSUER_CA_ID,
-								c.CERTIFICATE,
-								x509_notBefore(c.CERTIFICATE)	NOT_BEFORE,
-								x509_notAfter(c.CERTIFICATE)	NOT_AFTER
-							FROM ca_certificate cac, certificate c
-								LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
-							WHERE cac.CA_ID = t_caID
-								AND cac.CERTIFICATE_ID = c.ID
-							ORDER BY ISSUER_NAME, NOT_BEFORE
-					) LOOP
-				t_output := t_output ||
-                    '  <TR>
-                    ';
-				IF t_showMozillaDisclosure THEN
-					t_temp3 := '<FONT color=#';
-					SELECT ctp.*
-						INTO t_ctp
-						FROM ca_trust_purpose ctp
-						WHERE ctp.CA_ID = l_record.ISSUER_CA_ID
-							AND ctp.TRUST_CONTEXT_ID = 5
-							AND ctp.TRUST_PURPOSE_ID = 1;
-					IF NOT FOUND THEN
-						t_temp3 := t_temp3 || '888888>Not Trusted';
-						t_ctp.SHORTEST_CHAIN := NULL;
-					ELSIF NOT t_ctp.IS_TIME_VALID THEN
-						t_temp3 := t_temp3 || '888888>Expired';
-					ELSE
-						SELECT cc.MOZILLA_DISCLOSURE_STATUS
-							INTO t_temp2
-							FROM ccadb_certificate cc
-							WHERE cc.CERTIFICATE_ID = l_record.ID;
-						IF FOUND AND (t_temp2 LIKE 'Revoked%') THEN
-							t_temp3 := t_temp3 || 'CC0000>Revoked';
-						ELSIF is_technically_constrained(l_record.CERTIFICATE) THEN
-							t_temp3 := t_temp3 || '00CC00>Constrained';
-						ELSIF t_ctp.ALL_CHAINS_REVOKED_IN_SALESFORCE OR t_ctp.ALL_CHAINS_REVOKED_VIA_ONECRL THEN
-							t_temp3 := t_temp3 || 'CC0000>All Paths Revoked';
-						ELSIF t_ctp.ALL_CHAINS_TECHNICALLY_CONSTRAINED THEN
-							t_temp3 := t_temp3 || '00CC00>All Paths Constrained';
-						ELSE
-							t_temp3 := t_temp3 || '00CC00>Valid';
-						END IF;
-					END IF;
-					IF t_ctp.SHORTEST_CHAIN IS NOT NULL THEN
-						t_temp3 := t_temp3 || ' <SPAN style="vertical-align:super;font-size:70%;color:#33A8FF">' || (t_ctp.SHORTEST_CHAIN + 1)::text || '</SPAN>';
-					END IF;
-					t_output := t_output ||
-                        '    <TD style="white-space:nowrap">' || t_temp3 || '</FONT></TD>
-                        ';
-				END IF;
-				t_output := t_output ||
-                    '    <TD><A href="?id=' || l_record.ID::text || t_temp || '">' || l_record.ID::text || '</A></TD>
-                        <TD style="white-space:nowrap">' || to_char(l_record.NOT_BEFORE, 'YYYY-MM-DD') || '</TD>
-                        <TD style="white-space:nowrap">' || to_char(l_record.NOT_AFTER, 'YYYY-MM-DD') || '</TD>
-                        <TD><A href="?caid=' || l_record.ISSUER_CA_ID::text || t_temp || '">' || html_escape(l_record.ISSUER_NAME) || '</A></TD>
-                    </TR>
-                    ';
-			END LOOP;
-
-			t_output := t_output ||
-                '</TABLE>
-                    </TD>
-                </TR>
-                <TR><TD colspan=2>&nbsp;</TD></TR>
-                ';
-
-			t_showCABLint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,cablint,%';
-			IF t_showCABLint THEN
-				t_output := t_output ||
-                    '  <TR>
-                        <TH class="outer">CA/B Forum lint</TH>
-                        <TD class="outer">
-                        <TABLE class="options">
-                            <TR><TH colspan=3>For Issued Certificates with notBefore >= ' || to_char(t_minNotBefore, 'YYYY-MM-DD') || ':</TH><TR>
-                            <TR>
-                            <TH>Issue</TH>
-                            <TH># Affected Certs</TH>
-                            </TR>
-                    ';
-				FOR l_record IN (
-							SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
-									CASE li.SEVERITY
-										WHEN 'F' THEN 1
-										WHEN 'E' THEN 2
-										WHEN 'W' THEN 3
-										ELSE 4
-									END ISSUE_TYPE,
-									CASE li.SEVERITY
-										WHEN 'F' THEN '<SPAN class="fatal">&nbsp; &nbsp;FATAL:'
-										WHEN 'E' THEN '<SPAN class="error">&nbsp; &nbsp;ERROR:'
-										WHEN 'W' THEN '<SPAN class="warning">&nbsp;WARNING:'
-										ELSE '<SPAN>&nbsp; &nbsp; &nbsp; &nbsp;' || li.SEVERITY || ':'
-									END ISSUE_HEADING
-								FROM lint_summary ls, lint_issue li
-								WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
-									AND ls.ISSUER_CA_ID = t_value::integer
-									AND ls.LINT_ISSUE_ID = li.ID
-									AND li.LINTER = 'cablint'
-								GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
-								ORDER BY ISSUE_TYPE, NUM_CERTS DESC
-						) LOOP
-					t_output := t_output ||
-                        '        <TR>
-                                <TD class="text">' || l_record.ISSUE_HEADING || ' ' || l_record.ISSUE_TEXT || '&nbsp;</SPAN></TD>
-                                <TD><A href="?cablint=' || l_record.ID::text || '&iCAID=' || t_caID::text || t_minNotBeforeString || '">' || l_record.NUM_CERTS::text || '</A></TD>
-                                </TR>
-                        ';
-				END LOOP;
-				t_output := t_output ||
-                    '      </TABLE>
-                        </TD>
-                    </TR>
-                    ';
-			END IF;
-
-			t_showX509Lint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,x509lint,%';
-			IF t_showX509Lint THEN
-				t_output := t_output ||
-                    '  <TR>
-                        <TH class="outer">X.509 lint</TH>
-                        <TD class="outer">
-                        <TABLE class="options">
-                            <TR><TH colspan=3>For Issued Certificates with notBefore >= ' || to_char(t_minNotBefore, 'YYYY-MM-DD') || ':</TH><TR>
-                            <TR>
-                            <TH>Issue</TH>
-                            <TH># Affected Certs</TH>
-                            </TR>
-                    ';
-				FOR l_record IN (
-							SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
-									CASE li.SEVERITY
-										WHEN 'F' THEN 1
-										WHEN 'E' THEN 2
-										WHEN 'W' THEN 3
-										ELSE 4
-									END ISSUE_TYPE,
-									CASE li.SEVERITY
-										WHEN 'F' THEN '<SPAN class="fatal">&nbsp; &nbsp;FATAL:'
-										WHEN 'E' THEN '<SPAN class="error">&nbsp; &nbsp;ERROR:'
-										WHEN 'W' THEN '<SPAN class="warning">&nbsp;WARNING:'
-										ELSE '<SPAN>&nbsp; &nbsp; &nbsp; &nbsp;' || li.SEVERITY || ':'
-									END ISSUE_HEADING
-								FROM lint_summary ls, lint_issue li
-								WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
-									AND ls.ISSUER_CA_ID = t_value::integer
-									AND ls.LINT_ISSUE_ID = li.ID
-									AND li.LINTER = 'x509lint'
-								GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
-								ORDER BY ISSUE_TYPE, NUM_CERTS DESC
-						) LOOP
-					t_output := t_output ||
-                        '        <TR>
-                                <TD class="text">' || l_record.ISSUE_HEADING || ' ' || l_record.ISSUE_TEXT || '&nbsp;</SPAN></TD>
-                                <TD><A href="?x509lint=' || l_record.ID::text || '&iCAID=' || t_caID::text || t_minNotBeforeString || '">' || l_record.NUM_CERTS::text || '</A></TD>
-                                </TR>
-                        ';
-				END LOOP;
-				t_output := t_output ||
-                    '      </TABLE>
-                        </TD>
-                    </TR>
-                    ';
-			END IF;
-
-			t_showZLint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,zlint,%';
-			IF t_showZLint THEN
-				t_output := t_output ||
-                    '  <TR>
-                        <TH class="outer">ZLint</TH>
-                        <TD class="outer">
-                        <TABLE class="options">
-                            <TR><TH colspan=3>For Issued Certificates with notBefore >= ' || to_char(t_minNotBefore, 'YYYY-MM-DD') || ':</TH><TR>
-                            <TR>
-                            <TH>Issue</TH>
-                            <TH># Affected Certs</TH>
-                            </TR>
-                    ';
-				FOR l_record IN (
-							SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
-									CASE li.SEVERITY
-										WHEN 'F' THEN 1
-										WHEN 'E' THEN 2
-										WHEN 'W' THEN 3
-										ELSE 4
-									END ISSUE_TYPE,
-									CASE li.SEVERITY
-										WHEN 'F' THEN '<SPAN class="fatal">&nbsp; &nbsp;FATAL:'
-										WHEN 'E' THEN '<SPAN class="error">&nbsp; &nbsp;ERROR:'
-										WHEN 'W' THEN '<SPAN class="warning">&nbsp;WARNING:'
-										ELSE '<SPAN>&nbsp; &nbsp; &nbsp; &nbsp;' || li.SEVERITY || ':'
-									END ISSUE_HEADING
-								FROM lint_summary ls, lint_issue li
-								WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
-									AND ls.ISSUER_CA_ID = t_value::integer
-									AND ls.LINT_ISSUE_ID = li.ID
-									AND li.LINTER = 'zlint'
-								GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
-								ORDER BY ISSUE_TYPE, NUM_CERTS DESC
-						) LOOP
-					t_output := t_output ||
-                        '        <TR>
-                                <TD class="text">' || l_record.ISSUE_HEADING || ' ' || l_record.ISSUE_TEXT || '&nbsp;</SPAN></TD>
-                                <TD><A href="?zlint=' || l_record.ID::text || '&iCAID=' || t_caID::text || t_minNotBeforeString || '">' || l_record.NUM_CERTS::text || '</A></TD>
-                                </TR>
-                        ';
-				END LOOP;
-				t_output := t_output ||
-                    '      </TABLE>
-                        </TD>
-                    </TR>
-                    ';
-			END IF;
-
-			t_output := t_output ||
-                '  <TR>
-                    <TH class="outer">Issued Certificates</TH>
-                    <TD class="outer">
-                    <SCRIPT type="text/javascript">
-                        function identitySearch(
-                        type,
-                        value
-                        )
-                        {
-                        if ((!type) || (!value))
-                            return;
-                        var t_url;
-                        if (document.search_form.searchCensys.checked) {
-                            t_url = "//search.censys.io/search?resource=certificates&q="
-                                + encodeURIComponent("parsed.issuer_dn=\"' || replace(replace(replace(t_caName, '"', ''), '<', '\<'), '>', '\>') || '\"");
-                            var t_field = "";
-                            if (value != "%") {
-                            if (type == "Identity") {
-                                t_url += " AND (names:" + encodeURIComponent("\"" + value + "\"") + ")";
-                            }
-                            else if (type == "CN")
-                                t_field = "parsed.subject.common_name";
-                            else if (type == "E") {
-                                alert("Sorry, Censys doesn''t support ''emailAddress (Subject)'' searches");
-                                return false;
-                            }
-                            else if (type == "OU")
-                                t_field = "parsed.subject.organizational_unit";
-                            else if (type == "O")
-                                t_field = "parsed.subject.organization";
-                            else if (type == "dNSName")
-                                t_field = "parsed.extensions.subject_alt_name.dns_names";
-                            else if (type == "rfc822Name")
-                                t_field = "parsed.extensions.subject_alt_name.email_addresses";
-                            else if (type == "iPAddress")
-                                t_field = "parsed.extensions.subject_alt_name.ip_addresses";
-                            }
-                            if (t_field != "")
-                            t_url += " AND " + t_field + ":" + encodeURIComponent("\"" + value + "\"");
-                        }
-                        else {
-                            t_url = "?" + encodeURIComponent(type) + "=" + encodeURIComponent(value);
-                            if (document.search_form.caID.value != "")
-                            t_url += "&iCAID=" + document.search_form.caID.value;
-                            if (document.search_form.excludeExpired.checked)
-                            t_url += "&exclude=expired";
-                            with (document.search_form) {
-                            if (match.options[match.selectedIndex].value != "")
-                                t_url += "&match=" + match.options[match.selectedIndex].value;
-                            }
-                            if (document.search_form.deduplicate.checked)
-                            t_url += "&deduplicate=Y";
-                            if (document.search_form.showSQL.checked)
-                            t_url += "&showSQL=Y";
-                        }
-                        window.location = t_url;
-                        }
-                    </SCRIPT>
-                    <FORM name="search_form" method="GET" onSubmit="return false">
-                        <INPUT type="hidden" name="caID" value="' || t_caID::text || '">
-                        <TABLE class="options" style="margin-left:0px">
-                        <TR>
-                            <TD class="options" style="padding-right:20px;vertical-align:top">
-                            <TABLE class="options" style="margin-left:0px">
-                                <TR>
-                                <TH>Population</TH>
-                                <TD style="text-align:center">Unexpired</TD>
-                                <TD style="text-align:center">Expired</TD>
-                                <TD style="text-align:center">TOTAL</TD>
-                                </TR>
-                                <TR>
-                                <TD style="text-align:center">Certificates</TD>
-                                <TD style="text-align:right">' || (coalesce(t_numIssued[1], 0) - coalesce(t_numExpired[1], 0))::text || '</TD>
-                                <TD style="text-align:right">' || coalesce(t_numExpired[1], 0)::text || '</TD>
-                                <TD style="text-align:right">' || coalesce(t_numIssued[1], 0)::text || '</TD>
-                                </TR>
-                                <TR>
-                                <TD style="text-align:center">Precertificates</TD>
-                                <TD style="text-align:right">' || (coalesce(t_numIssued[2], 0) - coalesce(t_numExpired[2], 0))::text || '</TD>
-                                <TD style="text-align:right">' || coalesce(t_numExpired[2], 0)::text || '</TD>
-                                <TD style="text-align:right">' || coalesce(t_numIssued[2], 0)::text || '</TD>
-                                </TR>
-                                <TR>
-                                <TD style="text-align:center">TOTAL</TD>
-                                <TD style="text-align:right">' || ((coalesce(t_numIssued[1], 0) - coalesce(t_numExpired[1], 0) + coalesce(t_numIssued[2], 0)) - coalesce(t_numExpired[2], 0))::text || '</TD>
-                                <TD style="text-align:right">' || (coalesce(t_numExpired[1], 0) + coalesce(t_numExpired[2], 0))::text || '</TD>
-                                <TD style="text-align:right">' || (coalesce(t_numIssued[1], 0) + coalesce(t_numIssued[2], 0))::text || '</TD>
-                                </TR>
-                            </TABLE>
-                            </TD>
-                            <TD class="options">
-                            <SPAN class="text">Select search type:</SPAN>
-                            <BR><SELECT name="idtype" size="8">
-                                <OPTION value="Identity" selected>IDENTITY</OPTION>
-                                <OPTION value="CN">&nbsp; commonName (Subject)</OPTION>
-                                <OPTION value="E">&nbsp; emailAddress (Subject)</OPTION>
-                                <OPTION value="OU">&nbsp; organizationalUnitName (Subject)</OPTION>
-                                <OPTION value="O">&nbsp; organizationName (Subject)</OPTION>
-                                <OPTION value="dNSName">&nbsp; dNSName (SAN)</OPTION>
-                                <OPTION value="rfc822Name">&nbsp; rfc822Name (SAN)</OPTION>
-                                <OPTION value="iPAddress">&nbsp; iPAddress (SAN)</OPTION>
-                            </SELECT>
-                            </TD>
-                            <TD class="options" style="padding-left:20px;vertical-align:top">
-                            <SPAN class="text">Enter search term:</SPAN><BR><SPAN class="small">(% = All certificates)</SPAN>
-                            <BR><BR>
-                            <INPUT type="text" name="idvalue" class="input" size="25" style="margin-top:2px">
-                            <BR><BR><BR>
-                            <INPUT type="submit" class="button" value="Search"
-                                    onClick="identitySearch(document.search_form.idtype.value,document.search_form.idvalue.value)">
-                            </TD>
-                            <TD class="options" style="padding-left:20px;vertical-align:top">
-                            <SPAN class="text">Search options:</SPAN>
-                            <BR><BR><DIV style="border:1px solid #AAAAAA;margin-bottom:5px;padding:4px 2px;text-align:left">
-                                &nbsp;<SELECT name="match">
-                                <OPTION value="" selected>Autoselect</OPTION>
-                                <OPTION value="=">=</OPTION>
-                                <OPTION value="ILIKE">ILIKE</OPTION>
-                                <OPTION value="LIKE">LIKE</OPTION>
-                                <OPTION value="single">Single</OPTION>
-                                <OPTION value="any">Any</OPTION>
-                                <OPTION value="FTS">Full Text Search</OPTION>
-                                </SELECT> Identity matching
-                                <BR><INPUT type="checkbox" name="excludeExpired"';
-			IF t_excludeExpired IS NOT NULL THEN
-				t_output := t_output || ' checked';
-			END IF;
-			t_output := t_output || '> Exclude expired certificates?
-                <BR><INPUT type="checkbox" name="deduplicate"';
-			IF t_deduplicate THEN
-				t_output := t_output || ' checked';
-			END IF;
-			t_output := t_output || '> Deduplicate (pre)certificate pairs?
-                <BR><INPUT type="checkbox" name="showSQL"';
-			IF t_showSQL THEN
-				t_output := t_output || ' checked';
-			END IF;
-			t_output := t_output || '> Show SQL?
-                <HR>
-                &nbsp;Or, <INPUT type="checkbox" name="searchCensys"';
-			IF coalesce(t_searchProvider, '') = '&search=censys' THEN
-				t_output := t_output || ' checked';
-			END IF;
-			t_output := t_output || '> Search on <SPAN style="vertical-align:-30%"><IMG src="/censys.png"></SPAN>?
-                            </DIV>
-                            </TD>
-                        </TR>
-                        </TABLE>
-                    </FORM>
-                    <SCRIPT type="text/javascript">
-                        document.search_form.idvalue.focus();
-                    </SCRIPT>
-                    </TD>
-                </TR>
-                <TR><TD colspan=2>&nbsp;</TD></TR>
-                <TR>
-                    <TH class="outer">Trust</TH>
-                    <TD class="outer">
-                    <TABLE class="options" style="margin-left:0px">
-                        <TR>
-                        <TH rowspan="2" style="vertical-align:middle">Purpose</TH>
-                ';
-
-			t_text := '';
-			t_count := 0;
-			FOR l_record IN (
-						SELECT *
-							FROM trust_context tc
-							ORDER BY tc.DISPLAY_ORDER
-					) LOOP
-				t_text := t_text ||
-                    '          <TH><A href="' || l_record.URL || '" target="_blank">' || l_record.CTX || '</A>';
-				IF l_record.VERSION IS NOT NULL THEN
-					t_text := t_text || '<BR>';
-					IF l_record.VERSION_URL IS NOT NULL THEN
-						t_text := t_text || '<A href="' || l_record.VERSION_URL || '" target="_blank">';
-					END IF;
-					t_text := t_text || '<SPAN class="small">(' || l_record.VERSION || ')</SPAN>';
-					IF l_record.VERSION_URL IS NOT NULL THEN
-						t_text := t_text || '</A>';
-					END IF;
-				END IF;
-				t_text := t_text || '</TH>
-                    ';
-				t_count := t_count + 1;
-			END LOOP;
-
-			t_output := t_output ||
-                '          <TH colspan="' || t_count::text || '">Context <SPAN class="small">(Version)</SPAN> <SPAN style="vertical-align:super;font-size:70%"><FONT style="color:#33A8FF">Shortest Path</FONT> &nbsp;<FONT style="color:#9100FF">Disabled From</FONT> &nbsp;<FONT style="color:#FF9100">NotBefore Until</FONT></SPAN></TH>
-                        </TR>
-                        <TR>
-                ';
-
-			t_purposeOID := '';
-			FOR l_record IN (
-						SELECT trustsrc.TRUST_CONTEXT_ID,
-								trustsrc.PURPOSE,
-								trustsrc.PURPOSE_OID,
-								(ctp.CA_ID IS NOT NULL) HAS_TRUST,
-								(ap.PURPOSE IS NOT NULL) IS_APPLICABLE,
-								ctp.IS_TIME_VALID,
-								ctp.SHORTEST_CHAIN,
-								ctp.ALL_CHAINS_REVOKED_VIA_ONECRL,
-								ctp.ALL_CHAINS_REVOKED_VIA_CRLSET,
-								ctp.ALL_CHAINS_REVOKED_VIA_DISALLOWEDSTL,
-								ctp.ALL_CHAINS_TECHNICALLY_CONSTRAINED,
-								ctp.DISABLED_FROM,
-								ctp.NOTBEFORE_UNTIL
-							FROM (SELECT tc.DISPLAY_ORDER CTX_DISPLAY_ORDER,
-											tc.ID TRUST_CONTEXT_ID,
-											tp.ID TRUST_PURPOSE_ID,
-											tp.DISPLAY_ORDER,
-											tp.PURPOSE,
-											tp.PURPOSE_OID
-										FROM trust_purpose tp, trust_context tc
-										WHERE tp.PURPOSE NOT IN ('EV Server Authentication', 'Qualified Website Authentication')
-									UNION
-									SELECT tc.DISPLAY_ORDER CTX_DISPLAY_ORDER,
-											tc.ID TRUST_CONTEXT_ID,
-											tp.ID TRUST_PURPOSE_ID,
-											tp.DISPLAY_ORDER,
-											tp.PURPOSE,
-											tp.PURPOSE_OID
-										FROM ca_trust_purpose ctp_ev, trust_purpose tp, trust_context tc
-										WHERE ctp_ev.CA_ID = t_caID
-											AND ctp_ev.TRUST_PURPOSE_ID = tp.ID
-											AND tp.PURPOSE IN ('EV Server Authentication', 'Qualified Website Authentication')
-										GROUP BY tc.CTX, tc.ID, tp.ID, tp.DISPLAY_ORDER, tp.PURPOSE, tp.PURPOSE_OID
-									) trustsrc
-								LEFT OUTER JOIN ca_trust_purpose ctp ON (
-									ctp.CA_ID = t_caID
-									AND trustsrc.TRUST_CONTEXT_ID = ctp.TRUST_CONTEXT_ID
-									AND trustsrc.TRUST_PURPOSE_ID = ctp.TRUST_PURPOSE_ID
-								)
-								LEFT OUTER JOIN applicable_purpose ap ON (
-									trustsrc.TRUST_CONTEXT_ID = ap.TRUST_CONTEXT_ID
-									AND trustsrc.PURPOSE = ap.PURPOSE
-								)
-							ORDER BY trustsrc.DISPLAY_ORDER, trustsrc.PURPOSE_OID, trustsrc.CTX_DISPLAY_ORDER
-					) LOOP
-				IF (t_purposeOID != l_record.PURPOSE_OID) OR (t_purpose != l_record.PURPOSE) THEN
-					t_purposeOID := l_record.PURPOSE_OID;
-					t_purpose := l_record.PURPOSE;
-					t_text := t_text ||
-                        '        </TR>
-                                <TR>
-                                <TD>' || l_record.PURPOSE;
-					IF l_record.PURPOSE = 'EV Server Authentication' THEN
-						t_text := t_text || ' (' || l_record.PURPOSE_OID || ')';
-					END IF;
-					t_text := t_text || '</TD>
-                        ';
-				END IF;
-				IF (l_record.TRUST_CONTEXT_ID = 6) AND (l_record.IS_APPLICABLE) THEN
-					SELECT true
-						INTO l_record.ALL_CHAINS_REVOKED_VIA_CRLSET
-						FROM ca_trust_purpose ctp
-						WHERE ctp.CA_ID = t_caID
-							AND ctp.TRUST_PURPOSE_ID = 1
-							AND ctp.ALL_CHAINS_REVOKED_VIA_CRLSET
-						LIMIT 1;
-				END IF;
-				t_text := t_text ||
-                    '          <TD style="text-align:center"><FONT color=#';
-				IF NOT l_record.IS_APPLICABLE THEN
-					t_text := t_text || 'CCCCCC>n/a';
-					l_record.SHORTEST_CHAIN := NULL;
-				ELSIF l_record.ALL_CHAINS_REVOKED_VIA_ONECRL AND (l_record.TRUST_CONTEXT_ID = 5) THEN
-					t_text := t_text || 'CC0000 style="font-weight:bold">Revoked</FONT><BR><FONT style="font-size:8pt;color:#CC0000">via OneCRL';
-				ELSIF l_record.ALL_CHAINS_REVOKED_VIA_CRLSET AND (l_record.TRUST_CONTEXT_ID = 6) THEN
-					t_text := t_text || 'CC0000 style="font-weight:bold">Revoked</FONT> <FONT style="font-size:8pt;color:#CC0000">via<BR>CRLSet / Blocklist';
-				ELSIF l_record.ALL_CHAINS_REVOKED_VIA_DISALLOWEDSTL AND (l_record.TRUST_CONTEXT_ID = 1) THEN
-					t_text := t_text || 'CC0000 style="font-weight:bold">Revoked</FONT> <FONT style="font-size:8pt;color:#CC0000">via<BR>disallowedcert.stl';
-				ELSIF NOT l_record.HAS_TRUST THEN
-					t_text := t_text || '888888>No';
-					l_record.SHORTEST_CHAIN := NULL;
-				ELSIF NOT l_record.IS_TIME_VALID THEN
-					t_text := t_text || '888888>Expired';
-				ELSIF l_record.ALL_CHAINS_TECHNICALLY_CONSTRAINED THEN
-					t_text := t_text || '00CC00>Constrained';
-				ELSE
-					t_text := t_text || '00CC00>Valid';
-				END IF;
-				IF l_record.SHORTEST_CHAIN IS NOT NULL THEN
-					t_text := t_text || ' <SPAN style="vertical-align:super;font-size:70%;color:#33A8FF">' || l_record.SHORTEST_CHAIN || '</SPAN>';
-				END IF;
-				IF l_record.DISABLED_FROM IS NOT NULL THEN
-					t_text := t_text || '<BR><SPAN style="font-size:70%;color:#9100FF">' || l_record.DISABLED_FROM::date || '</SPAN>';
-				END IF;
-				IF l_record.NOTBEFORE_UNTIL IS NOT NULL THEN
-					t_text := t_text || '<BR><SPAN style="font-size:70%;color:#FF9100">' || l_record.NOTBEFORE_UNTIL::date || '</SPAN>';
-				END IF;
-				t_text := t_text || '</FONT></TD>
-                    ';
-			END LOOP;
-
-			t_output := t_output || t_text ||
-                '        </TR>
-                    </TABLE>
-                    </TD>
-                </TR>
-                <TR><TD colspan=2>&nbsp;</TD></TR>
-                <TR>
-                    <TH class="outer">Parent CAs</TH>
-                    <TD class="outer">
-                ';
-
-			t_text := NULL;
-			FOR l_record IN (
-						SELECT x509_issuerName(c.CERTIFICATE)	ISSUER_NAME,
-								c.ISSUER_CA_ID
-							FROM ca_certificate cac, certificate c
-								LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
-							WHERE cac.CA_ID = t_caID
-								AND cac.CERTIFICATE_ID = c.ID
-								AND c.ISSUER_CA_ID != t_caID
-							GROUP BY x509_issuerName(c.CERTIFICATE),
-									c.ISSUER_CA_ID
-							ORDER BY x509_issuerName(c.CERTIFICATE)
-					) LOOP
-				IF t_text IS NULL THEN
-					t_text := '
-                        <TABLE class="options" style="margin-left:0px">
-                        ';
-				END IF;
-				t_text := t_text ||
-                    '  <TR>
-                        <TD>';
-				IF l_record.ISSUER_CA_ID IS NULL THEN
-					t_text := t_text || html_escape(l_record.ISSUER_NAME);
-				ELSE
-					t_text := t_text || '<A href="?caid=' || l_record.ISSUER_CA_ID::text || t_temp || '">'
-									|| html_escape(l_record.ISSUER_NAME) || '</A>';
-				END IF;
-				t_text := t_text || '</TD>
-                    </TR>
-                    ';
-			END LOOP;
-			IF t_text IS NOT NULL THEN
-				t_text := t_text ||
-                    '</TABLE>
-                    ';
-			END IF;
-			t_output := t_output || coalesce(t_text, '<I>None found</I>') ||
-                '    </TD>
-                </TR>
-                <TR>
-                    <TH class="outer">Child CAs</TH>
-                    <TD class="outer">
-                ';
-			t_text := NULL;
-			FOR l_record IN (
-				WITH child_certificate AS MATERIALIZED (
-					SELECT c.ID, x509_subjectName(c.CERTIFICATE) SUBJECT_NAME
-						FROM certificate c
-						WHERE c.ISSUER_CA_ID = t_caID
-							AND x509_canIssueCerts(c.CERTIFICATE)
-				)
-				SELECT child_certificate.SUBJECT_NAME,
-						cac.CA_ID
-					FROM child_certificate,
-						ca_certificate cac
-							LEFT OUTER JOIN ca ON (cac.CA_ID = ca.ID)
-					WHERE child_certificate.ID = cac.CERTIFICATE_ID
-						AND cac.CA_ID != t_caID
-					GROUP BY child_certificate.SUBJECT_NAME, cac.CA_ID
-					ORDER BY child_certificate.SUBJECT_NAME
-			) LOOP
-				IF t_text IS NULL THEN
-					t_text := '
-                        <TABLE class="options" style="margin-left:0px">
-                        ';
-				END IF;
-				t_text := t_text ||
-                    '  <TR>
-                        <TD>';
-				IF l_record.CA_ID IS NULL THEN
-					t_text := t_text || html_escape(l_record.SUBJECT_NAME);
-				ELSE
-					t_text := t_text || '<A href="?caid=' || l_record.CA_ID::text || t_temp || '">'
-									|| html_escape(l_record.SUBJECT_NAME) || '</A>';
-				END IF;
-				t_text := t_text || '</TD>
-                    </TR>
-                    ';
-			END LOOP;
-			IF t_text IS NOT NULL THEN
-				t_text := t_text ||
-                    '</TABLE>
-                    ';
-			END IF;
-			t_output := t_output || coalesce(t_text, '<I>None found</I>') ||
-                '    </TD>
-                </TR>
-                ';
-			t_output := t_output ||
-                '</TABLE>
-                ';
-		-- Search for (potentially) multiple CAs.
-		ELSE	/* CA Name */
-			t_query := 'SELECT ca.ID, ca.NAME' || chr(10) ||
-						'	FROM ca' || chr(10);
-			IF t_useReverseIndex THEN
-				t_query := t_query ||
-						'	WHERE reverse(lower(ca.NAME)) LIKE reverse(lower($1))' || chr(10);
-			ELSE
-				t_query := t_query ||
-						'	WHERE lower(ca.NAME) LIKE lower($1)' || chr(10);
-			END IF;
-
-			t_query := t_query ||
-						'	ORDER BY ca.NAME';
-			FOR l_record IN EXECUTE t_query
-							USING t_value LOOP
-				IF t_text IS NULL THEN
-					t_text := '
-                        <TABLE class="options" style="margin-left:0px">
-                        ';
-				END IF;
-				t_text := t_text ||
-                    '  <TR>
-                        <TD>' || '<A href="?caid=' || l_record.ID::text || coalesce(t_excludeExpired, '') || '">'
-                                                || html_escape(l_record.NAME) || '</A></TD>
-                    </TR>
-                    ';
-			END LOOP;
-			IF t_text IS NOT NULL THEN
-				t_text := t_text ||
-                    '</TABLE>
-                    ';
-			END IF;
-
-			t_output := t_output ||
-                '<TABLE>
-                <TR>
-                    <TH class="outer">CAs</TH>
-                    <TD class="outer">' || coalesce(t_text, '<I>None found</I>') || '</TD>
+                    <TH class="outer">Criteria</TH>
+                    <TD class="outer">Type: ' || html_escape(t_type)
+                                        || '&nbsp;&nbsp;&nbsp;&nbsp;Match: ' || html_escape(t_match)
+                                        || '&nbsp;&nbsp;&nbsp;&nbsp;Search: ' || ' ''' || html_escape(t_value) || '''</TD>
                 </TR>
                 </TABLE>
+                <BR>
                 ';
-		END IF;
+
+            -- Search for a specific CA.
+            IF t_type = 'CA ID' THEN
+                SELECT ca.ID, ca.NAME, ca.PUBLIC_KEY, ca.NUM_ISSUED, ca.NUM_EXPIRED
+                    INTO t_caID, t_caName, t_caPublicKey, t_numIssued, t_numExpired
+                    FROM ca
+                    WHERE ca.ID = t_value::integer;
+
+                IF t_caName IS NULL THEN
+                    RAISE no_data_found USING MESSAGE = 'CA not found';
+                ELSE
+                    t_text := html_escape(t_caName);
+                END IF;
+
+                SELECT min(cac.CERTIFICATE_ID)
+                    INTO t_certificateID
+                    FROM ca_certificate cac
+                    WHERE cac.CA_ID = t_caID;
+                IF t_certificateID IS NOT NULL THEN
+                    SELECT html_escape(x509_print(c.CERTIFICATE, NULL, 7999))
+                        INTO t_text
+                        FROM certificate c
+                        WHERE c.ID = t_certificateID;
+                    t_text := replace(t_text, '        Subject:', 'Subject:');
+                    t_text := replace(t_text, chr(10) || '        ', '<BR>');
+                    t_text := replace(t_text, ' ', '&nbsp;');
+                END IF;
+
+                t_showMozillaDisclosure := (',' || t_opt || ',') LIKE '%,mozilladisclosure,%';
+                t_temp := '';
+                IF t_opt != '' THEN
+                    t_temp := '&opt=' || RTRIM(t_opt, ',');
+                END IF;
+
+                t_output := t_output ||
+                    '<TABLE>
+                    <TR>
+                        <TH class="outer">crt.sh CA ID</TH>
+                        <TD class="outer">' || t_caID::text || '</TD>
+                    </TR>
+                    <TR>
+                        <TH class="outer">CA Name/Key</TH>
+                        <TD class="text">' || t_text || '</TD>
+                    </TR>
+                    <TR>
+                        <TH class="outer">Certificates</TH>
+                        <TD class="outer">
+                    <TABLE class="options" style="margin-left:0px">
+                    <TR>
+                    ';
+                IF t_showMozillaDisclosure THEN
+                    t_output := t_output ||
+                        '    <TH style="white-space:nowrap">Mozilla Disclosure<BR><SPAN class="small">(id-kp-serverAuth)</SPAN></TH>
+                        ';
+                END IF;
+                t_output := t_output ||
+                    '    <TH style="white-space:nowrap">crt.sh ID</TH>
+                        <TH style="white-space:nowrap">Not Before</TH>
+                        <TH style="white-space:nowrap">Not After</TH>
+                        <TH>Issuer Name</TH>
+                    </TR>
+                    ';
+                FOR l_record IN (
+                            SELECT x509_issuerName(c.CERTIFICATE)	ISSUER_NAME,
+                                    c.ID,
+                                    c.ISSUER_CA_ID,
+                                    c.CERTIFICATE,
+                                    x509_notBefore(c.CERTIFICATE)	NOT_BEFORE,
+                                    x509_notAfter(c.CERTIFICATE)	NOT_AFTER
+                                FROM ca_certificate cac, certificate c
+                                    LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                                WHERE cac.CA_ID = t_caID
+                                    AND cac.CERTIFICATE_ID = c.ID
+                                ORDER BY ISSUER_NAME, NOT_BEFORE
+                        ) LOOP
+                    t_output := t_output ||
+                        '  <TR>
+                        ';
+                    IF t_showMozillaDisclosure THEN
+                        t_temp3 := '<FONT color=#';
+                        SELECT ctp.*
+                            INTO t_ctp
+                            FROM ca_trust_purpose ctp
+                            WHERE ctp.CA_ID = l_record.ISSUER_CA_ID
+                                AND ctp.TRUST_CONTEXT_ID = 5
+                                AND ctp.TRUST_PURPOSE_ID = 1;
+                        IF NOT FOUND THEN
+                            t_temp3 := t_temp3 || '888888>Not Trusted';
+                            t_ctp.SHORTEST_CHAIN := NULL;
+                        ELSIF NOT t_ctp.IS_TIME_VALID THEN
+                            t_temp3 := t_temp3 || '888888>Expired';
+                        ELSE
+                            SELECT cc.MOZILLA_DISCLOSURE_STATUS
+                                INTO t_temp2
+                                FROM ccadb_certificate cc
+                                WHERE cc.CERTIFICATE_ID = l_record.ID;
+                            IF FOUND AND (t_temp2 LIKE 'Revoked%') THEN
+                                t_temp3 := t_temp3 || 'CC0000>Revoked';
+                            ELSIF is_technically_constrained(l_record.CERTIFICATE) THEN
+                                t_temp3 := t_temp3 || '00CC00>Constrained';
+                            ELSIF t_ctp.ALL_CHAINS_REVOKED_IN_SALESFORCE OR t_ctp.ALL_CHAINS_REVOKED_VIA_ONECRL THEN
+                                t_temp3 := t_temp3 || 'CC0000>All Paths Revoked';
+                            ELSIF t_ctp.ALL_CHAINS_TECHNICALLY_CONSTRAINED THEN
+                                t_temp3 := t_temp3 || '00CC00>All Paths Constrained';
+                            ELSE
+                                t_temp3 := t_temp3 || '00CC00>Valid';
+                            END IF;
+                        END IF;
+                        IF t_ctp.SHORTEST_CHAIN IS NOT NULL THEN
+                            t_temp3 := t_temp3 || ' <SPAN style="vertical-align:super;font-size:70%;color:#33A8FF">' || (t_ctp.SHORTEST_CHAIN + 1)::text || '</SPAN>';
+                        END IF;
+                        t_output := t_output ||
+                            '    <TD style="white-space:nowrap">' || t_temp3 || '</FONT></TD>
+                            ';
+                    END IF;
+                    t_output := t_output ||
+                        '    <TD><A href="?id=' || l_record.ID::text || t_temp || '">' || l_record.ID::text || '</A></TD>
+                            <TD style="white-space:nowrap">' || to_char(l_record.NOT_BEFORE, 'YYYY-MM-DD') || '</TD>
+                            <TD style="white-space:nowrap">' || to_char(l_record.NOT_AFTER, 'YYYY-MM-DD') || '</TD>
+                            <TD><A href="?caid=' || l_record.ISSUER_CA_ID::text || t_temp || '">' || html_escape(l_record.ISSUER_NAME) || '</A></TD>
+                        </TR>
+                        ';
+                END LOOP;
+
+                t_output := t_output ||
+                    '</TABLE>
+                        </TD>
+                    </TR>
+                    <TR><TD colspan=2>&nbsp;</TD></TR>
+                    ';
+
+                t_showCABLint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,cablint,%';
+                IF t_showCABLint THEN
+                    t_output := t_output ||
+                        '  <TR>
+                            <TH class="outer">CA/B Forum lint</TH>
+                            <TD class="outer">
+                            <TABLE class="options">
+                                <TR><TH colspan=3>For Issued Certificates with notBefore >= ' || to_char(t_minNotBefore, 'YYYY-MM-DD') || ':</TH><TR>
+                                <TR>
+                                <TH>Issue</TH>
+                                <TH># Affected Certs</TH>
+                                </TR>
+                        ';
+                    FOR l_record IN (
+                                SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 1
+                                            WHEN 'E' THEN 2
+                                            WHEN 'W' THEN 3
+                                            ELSE 4
+                                        END ISSUE_TYPE,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN '<SPAN class="fatal">&nbsp; &nbsp;FATAL:'
+                                            WHEN 'E' THEN '<SPAN class="error">&nbsp; &nbsp;ERROR:'
+                                            WHEN 'W' THEN '<SPAN class="warning">&nbsp;WARNING:'
+                                            ELSE '<SPAN>&nbsp; &nbsp; &nbsp; &nbsp;' || li.SEVERITY || ':'
+                                        END ISSUE_HEADING
+                                    FROM lint_summary ls, lint_issue li
+                                    WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
+                                        AND ls.ISSUER_CA_ID = t_value::integer
+                                        AND ls.LINT_ISSUE_ID = li.ID
+                                        AND li.LINTER = 'cablint'
+                                    GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
+                                    ORDER BY ISSUE_TYPE, NUM_CERTS DESC
+                            ) LOOP
+                        t_output := t_output ||
+                            '        <TR>
+                                    <TD class="text">' || l_record.ISSUE_HEADING || ' ' || l_record.ISSUE_TEXT || '&nbsp;</SPAN></TD>
+                                    <TD><A href="?cablint=' || l_record.ID::text || '&iCAID=' || t_caID::text || t_minNotBeforeString || '">' || l_record.NUM_CERTS::text || '</A></TD>
+                                    </TR>
+                            ';
+                    END LOOP;
+                    t_output := t_output ||
+                        '      </TABLE>
+                            </TD>
+                        </TR>
+                        ';
+                END IF;
+
+                t_showX509Lint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,x509lint,%';
+                IF t_showX509Lint THEN
+                    t_output := t_output ||
+                        '  <TR>
+                            <TH class="outer">X.509 lint</TH>
+                            <TD class="outer">
+                            <TABLE class="options">
+                                <TR><TH colspan=3>For Issued Certificates with notBefore >= ' || to_char(t_minNotBefore, 'YYYY-MM-DD') || ':</TH><TR>
+                                <TR>
+                                <TH>Issue</TH>
+                                <TH># Affected Certs</TH>
+                                </TR>
+                        ';
+                    FOR l_record IN (
+                                SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 1
+                                            WHEN 'E' THEN 2
+                                            WHEN 'W' THEN 3
+                                            ELSE 4
+                                        END ISSUE_TYPE,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN '<SPAN class="fatal">&nbsp; &nbsp;FATAL:'
+                                            WHEN 'E' THEN '<SPAN class="error">&nbsp; &nbsp;ERROR:'
+                                            WHEN 'W' THEN '<SPAN class="warning">&nbsp;WARNING:'
+                                            ELSE '<SPAN>&nbsp; &nbsp; &nbsp; &nbsp;' || li.SEVERITY || ':'
+                                        END ISSUE_HEADING
+                                    FROM lint_summary ls, lint_issue li
+                                    WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
+                                        AND ls.ISSUER_CA_ID = t_value::integer
+                                        AND ls.LINT_ISSUE_ID = li.ID
+                                        AND li.LINTER = 'x509lint'
+                                    GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
+                                    ORDER BY ISSUE_TYPE, NUM_CERTS DESC
+                            ) LOOP
+                        t_output := t_output ||
+                            '        <TR>
+                                    <TD class="text">' || l_record.ISSUE_HEADING || ' ' || l_record.ISSUE_TEXT || '&nbsp;</SPAN></TD>
+                                    <TD><A href="?x509lint=' || l_record.ID::text || '&iCAID=' || t_caID::text || t_minNotBeforeString || '">' || l_record.NUM_CERTS::text || '</A></TD>
+                                    </TR>
+                            ';
+                    END LOOP;
+                    t_output := t_output ||
+                        '      </TABLE>
+                            </TD>
+                        </TR>
+                        ';
+                END IF;
+
+                t_showZLint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,zlint,%';
+                IF t_showZLint THEN
+                    t_output := t_output ||
+                        '  <TR>
+                            <TH class="outer">ZLint</TH>
+                            <TD class="outer">
+                            <TABLE class="options">
+                                <TR><TH colspan=3>For Issued Certificates with notBefore >= ' || to_char(t_minNotBefore, 'YYYY-MM-DD') || ':</TH><TR>
+                                <TR>
+                                <TH>Issue</TH>
+                                <TH># Affected Certs</TH>
+                                </TR>
+                        ';
+                    FOR l_record IN (
+                                SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 1
+                                            WHEN 'E' THEN 2
+                                            WHEN 'W' THEN 3
+                                            ELSE 4
+                                        END ISSUE_TYPE,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN '<SPAN class="fatal">&nbsp; &nbsp;FATAL:'
+                                            WHEN 'E' THEN '<SPAN class="error">&nbsp; &nbsp;ERROR:'
+                                            WHEN 'W' THEN '<SPAN class="warning">&nbsp;WARNING:'
+                                            ELSE '<SPAN>&nbsp; &nbsp; &nbsp; &nbsp;' || li.SEVERITY || ':'
+                                        END ISSUE_HEADING
+                                    FROM lint_summary ls, lint_issue li
+                                    WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
+                                        AND ls.ISSUER_CA_ID = t_value::integer
+                                        AND ls.LINT_ISSUE_ID = li.ID
+                                        AND li.LINTER = 'zlint'
+                                    GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
+                                    ORDER BY ISSUE_TYPE, NUM_CERTS DESC
+                            ) LOOP
+                        t_output := t_output ||
+                            '        <TR>
+                                    <TD class="text">' || l_record.ISSUE_HEADING || ' ' || l_record.ISSUE_TEXT || '&nbsp;</SPAN></TD>
+                                    <TD><A href="?zlint=' || l_record.ID::text || '&iCAID=' || t_caID::text || t_minNotBeforeString || '">' || l_record.NUM_CERTS::text || '</A></TD>
+                                    </TR>
+                            ';
+                    END LOOP;
+                    t_output := t_output ||
+                        '      </TABLE>
+                            </TD>
+                        </TR>
+                        ';
+                END IF;
+
+                t_output := t_output ||
+                    '  <TR>
+                        <TH class="outer">Issued Certificates</TH>
+                        <TD class="outer">
+                        <SCRIPT type="text/javascript">
+                            function identitySearch(
+                            type,
+                            value
+                            )
+                            {
+                            if ((!type) || (!value))
+                                return;
+                            var t_url;
+                            if (document.search_form.searchCensys.checked) {
+                                t_url = "//search.censys.io/search?resource=certificates&q="
+                                    + encodeURIComponent("parsed.issuer_dn=\"' || replace(replace(replace(t_caName, '"', ''), '<', '\<'), '>', '\>') || '\"");
+                                var t_field = "";
+                                if (value != "%") {
+                                if (type == "Identity") {
+                                    t_url += " AND (names:" + encodeURIComponent("\"" + value + "\"") + ")";
+                                }
+                                else if (type == "CN")
+                                    t_field = "parsed.subject.common_name";
+                                else if (type == "E") {
+                                    alert("Sorry, Censys doesn''t support ''emailAddress (Subject)'' searches");
+                                    return false;
+                                }
+                                else if (type == "OU")
+                                    t_field = "parsed.subject.organizational_unit";
+                                else if (type == "O")
+                                    t_field = "parsed.subject.organization";
+                                else if (type == "dNSName")
+                                    t_field = "parsed.extensions.subject_alt_name.dns_names";
+                                else if (type == "rfc822Name")
+                                    t_field = "parsed.extensions.subject_alt_name.email_addresses";
+                                else if (type == "iPAddress")
+                                    t_field = "parsed.extensions.subject_alt_name.ip_addresses";
+                                }
+                                if (t_field != "")
+                                t_url += " AND " + t_field + ":" + encodeURIComponent("\"" + value + "\"");
+                            }
+                            else {
+                                t_url = "?" + encodeURIComponent(type) + "=" + encodeURIComponent(value);
+                                if (document.search_form.caID.value != "")
+                                t_url += "&iCAID=" + document.search_form.caID.value;
+                                if (document.search_form.excludeExpired.checked)
+                                t_url += "&exclude=expired";
+                                with (document.search_form) {
+                                if (match.options[match.selectedIndex].value != "")
+                                    t_url += "&match=" + match.options[match.selectedIndex].value;
+                                }
+                                if (document.search_form.deduplicate.checked)
+                                t_url += "&deduplicate=Y";
+                                if (document.search_form.showSQL.checked)
+                                t_url += "&showSQL=Y";
+                            }
+                            window.location = t_url;
+                            }
+                        </SCRIPT>
+                        <FORM name="search_form" method="GET" onSubmit="return false">
+                            <INPUT type="hidden" name="caID" value="' || t_caID::text || '">
+                            <TABLE class="options" style="margin-left:0px">
+                            <TR>
+                                <TD class="options" style="padding-right:20px;vertical-align:top">
+                                <TABLE class="options" style="margin-left:0px">
+                                    <TR>
+                                    <TH>Population</TH>
+                                    <TD style="text-align:center">Unexpired</TD>
+                                    <TD style="text-align:center">Expired</TD>
+                                    <TD style="text-align:center">TOTAL</TD>
+                                    </TR>
+                                    <TR>
+                                    <TD style="text-align:center">Certificates</TD>
+                                    <TD style="text-align:right">' || (coalesce(t_numIssued[1], 0) - coalesce(t_numExpired[1], 0))::text || '</TD>
+                                    <TD style="text-align:right">' || coalesce(t_numExpired[1], 0)::text || '</TD>
+                                    <TD style="text-align:right">' || coalesce(t_numIssued[1], 0)::text || '</TD>
+                                    </TR>
+                                    <TR>
+                                    <TD style="text-align:center">Precertificates</TD>
+                                    <TD style="text-align:right">' || (coalesce(t_numIssued[2], 0) - coalesce(t_numExpired[2], 0))::text || '</TD>
+                                    <TD style="text-align:right">' || coalesce(t_numExpired[2], 0)::text || '</TD>
+                                    <TD style="text-align:right">' || coalesce(t_numIssued[2], 0)::text || '</TD>
+                                    </TR>
+                                    <TR>
+                                    <TD style="text-align:center">TOTAL</TD>
+                                    <TD style="text-align:right">' || ((coalesce(t_numIssued[1], 0) - coalesce(t_numExpired[1], 0) + coalesce(t_numIssued[2], 0)) - coalesce(t_numExpired[2], 0))::text || '</TD>
+                                    <TD style="text-align:right">' || (coalesce(t_numExpired[1], 0) + coalesce(t_numExpired[2], 0))::text || '</TD>
+                                    <TD style="text-align:right">' || (coalesce(t_numIssued[1], 0) + coalesce(t_numIssued[2], 0))::text || '</TD>
+                                    </TR>
+                                </TABLE>
+                                </TD>
+                                <TD class="options">
+                                <SPAN class="text">Select search type:</SPAN>
+                                <BR><SELECT name="idtype" size="8">
+                                    <OPTION value="Identity" selected>IDENTITY</OPTION>
+                                    <OPTION value="CN">&nbsp; commonName (Subject)</OPTION>
+                                    <OPTION value="E">&nbsp; emailAddress (Subject)</OPTION>
+                                    <OPTION value="OU">&nbsp; organizationalUnitName (Subject)</OPTION>
+                                    <OPTION value="O">&nbsp; organizationName (Subject)</OPTION>
+                                    <OPTION value="dNSName">&nbsp; dNSName (SAN)</OPTION>
+                                    <OPTION value="rfc822Name">&nbsp; rfc822Name (SAN)</OPTION>
+                                    <OPTION value="iPAddress">&nbsp; iPAddress (SAN)</OPTION>
+                                </SELECT>
+                                </TD>
+                                <TD class="options" style="padding-left:20px;vertical-align:top">
+                                <SPAN class="text">Enter search term:</SPAN><BR><SPAN class="small">(% = All certificates)</SPAN>
+                                <BR><BR>
+                                <INPUT type="text" name="idvalue" class="input" size="25" style="margin-top:2px">
+                                <BR><BR><BR>
+                                <INPUT type="submit" class="button" value="Search"
+                                        onClick="identitySearch(document.search_form.idtype.value,document.search_form.idvalue.value)">
+                                </TD>
+                                <TD class="options" style="padding-left:20px;vertical-align:top">
+                                <SPAN class="text">Search options:</SPAN>
+                                <BR><BR><DIV style="border:1px solid #AAAAAA;margin-bottom:5px;padding:4px 2px;text-align:left">
+                                    &nbsp;<SELECT name="match">
+                                    <OPTION value="" selected>Autoselect</OPTION>
+                                    <OPTION value="=">=</OPTION>
+                                    <OPTION value="ILIKE">ILIKE</OPTION>
+                                    <OPTION value="LIKE">LIKE</OPTION>
+                                    <OPTION value="single">Single</OPTION>
+                                    <OPTION value="any">Any</OPTION>
+                                    <OPTION value="FTS">Full Text Search</OPTION>
+                                    </SELECT> Identity matching
+                                    <BR><INPUT type="checkbox" name="excludeExpired"';
+                IF t_excludeExpired IS NOT NULL THEN
+                    t_output := t_output || ' checked';
+                END IF;
+                t_output := t_output || '> Exclude expired certificates?
+                    <BR><INPUT type="checkbox" name="deduplicate"';
+                IF t_deduplicate THEN
+                    t_output := t_output || ' checked';
+                END IF;
+                t_output := t_output || '> Deduplicate (pre)certificate pairs?
+                    <BR><INPUT type="checkbox" name="showSQL"';
+                IF t_showSQL THEN
+                    t_output := t_output || ' checked';
+                END IF;
+                t_output := t_output || '> Show SQL?
+                    <HR>
+                    &nbsp;Or, <INPUT type="checkbox" name="searchCensys"';
+                IF coalesce(t_searchProvider, '') = '&search=censys' THEN
+                    t_output := t_output || ' checked';
+                END IF;
+                t_output := t_output || '> Search on <SPAN style="vertical-align:-30%"><IMG src="/censys.png"></SPAN>?
+                                </DIV>
+                                </TD>
+                            </TR>
+                            </TABLE>
+                        </FORM>
+                        <SCRIPT type="text/javascript">
+                            document.search_form.idvalue.focus();
+                        </SCRIPT>
+                        </TD>
+                    </TR>
+                    <TR><TD colspan=2>&nbsp;</TD></TR>
+                    <TR>
+                        <TH class="outer">Trust</TH>
+                        <TD class="outer">
+                        <TABLE class="options" style="margin-left:0px">
+                            <TR>
+                            <TH rowspan="2" style="vertical-align:middle">Purpose</TH>
+                    ';
+
+                t_text := '';
+                t_count := 0;
+                FOR l_record IN (
+                            SELECT *
+                                FROM trust_context tc
+                                ORDER BY tc.DISPLAY_ORDER
+                        ) LOOP
+                    t_text := t_text ||
+                        '          <TH><A href="' || l_record.URL || '" target="_blank">' || l_record.CTX || '</A>';
+                    IF l_record.VERSION IS NOT NULL THEN
+                        t_text := t_text || '<BR>';
+                        IF l_record.VERSION_URL IS NOT NULL THEN
+                            t_text := t_text || '<A href="' || l_record.VERSION_URL || '" target="_blank">';
+                        END IF;
+                        t_text := t_text || '<SPAN class="small">(' || l_record.VERSION || ')</SPAN>';
+                        IF l_record.VERSION_URL IS NOT NULL THEN
+                            t_text := t_text || '</A>';
+                        END IF;
+                    END IF;
+                    t_text := t_text || '</TH>
+                        ';
+                    t_count := t_count + 1;
+                END LOOP;
+
+                t_output := t_output ||
+                    '          <TH colspan="' || t_count::text || '">Context <SPAN class="small">(Version)</SPAN> <SPAN style="vertical-align:super;font-size:70%"><FONT style="color:#33A8FF">Shortest Path</FONT> &nbsp;<FONT style="color:#9100FF">Disabled From</FONT> &nbsp;<FONT style="color:#FF9100">NotBefore Until</FONT></SPAN></TH>
+                            </TR>
+                            <TR>
+                    ';
+
+                t_purposeOID := '';
+                FOR l_record IN (
+                            SELECT trustsrc.TRUST_CONTEXT_ID,
+                                    trustsrc.PURPOSE,
+                                    trustsrc.PURPOSE_OID,
+                                    (ctp.CA_ID IS NOT NULL) HAS_TRUST,
+                                    (ap.PURPOSE IS NOT NULL) IS_APPLICABLE,
+                                    ctp.IS_TIME_VALID,
+                                    ctp.SHORTEST_CHAIN,
+                                    ctp.ALL_CHAINS_REVOKED_VIA_ONECRL,
+                                    ctp.ALL_CHAINS_REVOKED_VIA_CRLSET,
+                                    ctp.ALL_CHAINS_REVOKED_VIA_DISALLOWEDSTL,
+                                    ctp.ALL_CHAINS_TECHNICALLY_CONSTRAINED,
+                                    ctp.DISABLED_FROM,
+                                    ctp.NOTBEFORE_UNTIL
+                                FROM (SELECT tc.DISPLAY_ORDER CTX_DISPLAY_ORDER,
+                                                tc.ID TRUST_CONTEXT_ID,
+                                                tp.ID TRUST_PURPOSE_ID,
+                                                tp.DISPLAY_ORDER,
+                                                tp.PURPOSE,
+                                                tp.PURPOSE_OID
+                                            FROM trust_purpose tp, trust_context tc
+                                            WHERE tp.PURPOSE NOT IN ('EV Server Authentication', 'Qualified Website Authentication')
+                                        UNION
+                                        SELECT tc.DISPLAY_ORDER CTX_DISPLAY_ORDER,
+                                                tc.ID TRUST_CONTEXT_ID,
+                                                tp.ID TRUST_PURPOSE_ID,
+                                                tp.DISPLAY_ORDER,
+                                                tp.PURPOSE,
+                                                tp.PURPOSE_OID
+                                            FROM ca_trust_purpose ctp_ev, trust_purpose tp, trust_context tc
+                                            WHERE ctp_ev.CA_ID = t_caID
+                                                AND ctp_ev.TRUST_PURPOSE_ID = tp.ID
+                                                AND tp.PURPOSE IN ('EV Server Authentication', 'Qualified Website Authentication')
+                                            GROUP BY tc.CTX, tc.ID, tp.ID, tp.DISPLAY_ORDER, tp.PURPOSE, tp.PURPOSE_OID
+                                        ) trustsrc
+                                    LEFT OUTER JOIN ca_trust_purpose ctp ON (
+                                        ctp.CA_ID = t_caID
+                                        AND trustsrc.TRUST_CONTEXT_ID = ctp.TRUST_CONTEXT_ID
+                                        AND trustsrc.TRUST_PURPOSE_ID = ctp.TRUST_PURPOSE_ID
+                                    )
+                                    LEFT OUTER JOIN applicable_purpose ap ON (
+                                        trustsrc.TRUST_CONTEXT_ID = ap.TRUST_CONTEXT_ID
+                                        AND trustsrc.PURPOSE = ap.PURPOSE
+                                    )
+                                ORDER BY trustsrc.DISPLAY_ORDER, trustsrc.PURPOSE_OID, trustsrc.CTX_DISPLAY_ORDER
+                        ) LOOP
+                    IF (t_purposeOID != l_record.PURPOSE_OID) OR (t_purpose != l_record.PURPOSE) THEN
+                        t_purposeOID := l_record.PURPOSE_OID;
+                        t_purpose := l_record.PURPOSE;
+                        t_text := t_text ||
+                            '        </TR>
+                                    <TR>
+                                    <TD>' || l_record.PURPOSE;
+                        IF l_record.PURPOSE = 'EV Server Authentication' THEN
+                            t_text := t_text || ' (' || l_record.PURPOSE_OID || ')';
+                        END IF;
+                        t_text := t_text || '</TD>
+                            ';
+                    END IF;
+                    IF (l_record.TRUST_CONTEXT_ID = 6) AND (l_record.IS_APPLICABLE) THEN
+                        SELECT true
+                            INTO l_record.ALL_CHAINS_REVOKED_VIA_CRLSET
+                            FROM ca_trust_purpose ctp
+                            WHERE ctp.CA_ID = t_caID
+                                AND ctp.TRUST_PURPOSE_ID = 1
+                                AND ctp.ALL_CHAINS_REVOKED_VIA_CRLSET
+                            LIMIT 1;
+                    END IF;
+                    t_text := t_text ||
+                        '          <TD style="text-align:center"><FONT color=#';
+                    IF NOT l_record.IS_APPLICABLE THEN
+                        t_text := t_text || 'CCCCCC>n/a';
+                        l_record.SHORTEST_CHAIN := NULL;
+                    ELSIF l_record.ALL_CHAINS_REVOKED_VIA_ONECRL AND (l_record.TRUST_CONTEXT_ID = 5) THEN
+                        t_text := t_text || 'CC0000 style="font-weight:bold">Revoked</FONT><BR><FONT style="font-size:8pt;color:#CC0000">via OneCRL';
+                    ELSIF l_record.ALL_CHAINS_REVOKED_VIA_CRLSET AND (l_record.TRUST_CONTEXT_ID = 6) THEN
+                        t_text := t_text || 'CC0000 style="font-weight:bold">Revoked</FONT> <FONT style="font-size:8pt;color:#CC0000">via<BR>CRLSet / Blocklist';
+                    ELSIF l_record.ALL_CHAINS_REVOKED_VIA_DISALLOWEDSTL AND (l_record.TRUST_CONTEXT_ID = 1) THEN
+                        t_text := t_text || 'CC0000 style="font-weight:bold">Revoked</FONT> <FONT style="font-size:8pt;color:#CC0000">via<BR>disallowedcert.stl';
+                    ELSIF NOT l_record.HAS_TRUST THEN
+                        t_text := t_text || '888888>No';
+                        l_record.SHORTEST_CHAIN := NULL;
+                    ELSIF NOT l_record.IS_TIME_VALID THEN
+                        t_text := t_text || '888888>Expired';
+                    ELSIF l_record.ALL_CHAINS_TECHNICALLY_CONSTRAINED THEN
+                        t_text := t_text || '00CC00>Constrained';
+                    ELSE
+                        t_text := t_text || '00CC00>Valid';
+                    END IF;
+                    IF l_record.SHORTEST_CHAIN IS NOT NULL THEN
+                        t_text := t_text || ' <SPAN style="vertical-align:super;font-size:70%;color:#33A8FF">' || l_record.SHORTEST_CHAIN || '</SPAN>';
+                    END IF;
+                    IF l_record.DISABLED_FROM IS NOT NULL THEN
+                        t_text := t_text || '<BR><SPAN style="font-size:70%;color:#9100FF">' || l_record.DISABLED_FROM::date || '</SPAN>';
+                    END IF;
+                    IF l_record.NOTBEFORE_UNTIL IS NOT NULL THEN
+                        t_text := t_text || '<BR><SPAN style="font-size:70%;color:#FF9100">' || l_record.NOTBEFORE_UNTIL::date || '</SPAN>';
+                    END IF;
+                    t_text := t_text || '</FONT></TD>
+                        ';
+                END LOOP;
+
+                t_output := t_output || t_text ||
+                    '        </TR>
+                        </TABLE>
+                        </TD>
+                    </TR>
+                    <TR><TD colspan=2>&nbsp;</TD></TR>
+                    <TR>
+                        <TH class="outer">Parent CAs</TH>
+                        <TD class="outer">
+                    ';
+
+                t_text := NULL;
+                FOR l_record IN (
+                            SELECT x509_issuerName(c.CERTIFICATE)	ISSUER_NAME,
+                                    c.ISSUER_CA_ID
+                                FROM ca_certificate cac, certificate c
+                                    LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                                WHERE cac.CA_ID = t_caID
+                                    AND cac.CERTIFICATE_ID = c.ID
+                                    AND c.ISSUER_CA_ID != t_caID
+                                GROUP BY x509_issuerName(c.CERTIFICATE),
+                                        c.ISSUER_CA_ID
+                                ORDER BY x509_issuerName(c.CERTIFICATE)
+                        ) LOOP
+                    IF t_text IS NULL THEN
+                        t_text := '
+                            <TABLE class="options" style="margin-left:0px">
+                            ';
+                    END IF;
+                    t_text := t_text ||
+                        '  <TR>
+                            <TD>';
+                    IF l_record.ISSUER_CA_ID IS NULL THEN
+                        t_text := t_text || html_escape(l_record.ISSUER_NAME);
+                    ELSE
+                        t_text := t_text || '<A href="?caid=' || l_record.ISSUER_CA_ID::text || t_temp || '">'
+                                        || html_escape(l_record.ISSUER_NAME) || '</A>';
+                    END IF;
+                    t_text := t_text || '</TD>
+                        </TR>
+                        ';
+                END LOOP;
+                IF t_text IS NOT NULL THEN
+                    t_text := t_text ||
+                        '</TABLE>
+                        ';
+                END IF;
+                t_output := t_output || coalesce(t_text, '<I>None found</I>') ||
+                    '    </TD>
+                    </TR>
+                    <TR>
+                        <TH class="outer">Child CAs</TH>
+                        <TD class="outer">
+                    ';
+                t_text := NULL;
+                FOR l_record IN (
+                    WITH child_certificate AS MATERIALIZED (
+                        SELECT c.ID, x509_subjectName(c.CERTIFICATE) SUBJECT_NAME
+                            FROM certificate c
+                            WHERE c.ISSUER_CA_ID = t_caID
+                                AND x509_canIssueCerts(c.CERTIFICATE)
+                    )
+                    SELECT child_certificate.SUBJECT_NAME,
+                            cac.CA_ID
+                        FROM child_certificate,
+                            ca_certificate cac
+                                LEFT OUTER JOIN ca ON (cac.CA_ID = ca.ID)
+                        WHERE child_certificate.ID = cac.CERTIFICATE_ID
+                            AND cac.CA_ID != t_caID
+                        GROUP BY child_certificate.SUBJECT_NAME, cac.CA_ID
+                        ORDER BY child_certificate.SUBJECT_NAME
+                ) LOOP
+                    IF t_text IS NULL THEN
+                        t_text := '
+                            <TABLE class="options" style="margin-left:0px">
+                            ';
+                    END IF;
+                    t_text := t_text ||
+                        '  <TR>
+                            <TD>';
+                    IF l_record.CA_ID IS NULL THEN
+                        t_text := t_text || html_escape(l_record.SUBJECT_NAME);
+                    ELSE
+                        t_text := t_text || '<A href="?caid=' || l_record.CA_ID::text || t_temp || '">'
+                                        || html_escape(l_record.SUBJECT_NAME) || '</A>';
+                    END IF;
+                    t_text := t_text || '</TD>
+                        </TR>
+                        ';
+                END LOOP;
+                IF t_text IS NOT NULL THEN
+                    t_text := t_text ||
+                        '</TABLE>
+                        ';
+                END IF;
+                t_output := t_output || coalesce(t_text, '<I>None found</I>') ||
+                    '    </TD>
+                    </TR>
+                    ';
+                t_output := t_output ||
+                    '</TABLE>
+                    ';
+            -- Search for (potentially) multiple CAs.
+            ELSE	/* CA Name */
+                t_query := 'SELECT ca.ID, ca.NAME' || chr(10) ||
+                            '	FROM ca' || chr(10);
+                IF t_useReverseIndex THEN
+                    t_query := t_query ||
+                            '	WHERE reverse(lower(ca.NAME)) LIKE reverse(lower($1))' || chr(10);
+                ELSE
+                    t_query := t_query ||
+                            '	WHERE lower(ca.NAME) LIKE lower($1)' || chr(10);
+                END IF;
+
+                t_query := t_query ||
+                            '	ORDER BY ca.NAME';
+                FOR l_record IN EXECUTE t_query
+                                USING t_value LOOP
+                    IF t_text IS NULL THEN
+                        t_text := '
+                            <TABLE class="options" style="margin-left:0px">
+                            ';
+                    END IF;
+                    t_text := t_text ||
+                        '  <TR>
+                            <TD>' || '<A href="?caid=' || l_record.ID::text || coalesce(t_excludeExpired, '') || '">'
+                                                    || html_escape(l_record.NAME) || '</A></TD>
+                        </TR>
+                        ';
+                END LOOP;
+                IF t_text IS NOT NULL THEN
+                    t_text := t_text ||
+                        '</TABLE>
+                        ';
+                END IF;
+
+                t_output := t_output ||
+                    '<TABLE>
+                    <TR>
+                        <TH class="outer">CAs</TH>
+                        <TD class="outer">' || coalesce(t_text, '<I>None found</I>') || '</TD>
+                    </TR>
+                    </TABLE>
+                    ';
+            END IF;
+        ELSIF t_outputType = 'json' THEN
+            t_output := t_output || '{';
+
+            -- Determine whether to use a reverse index (if available).
+            IF position('%' IN t_value) != 0 THEN
+                t_useReverseIndex := (
+                    position('%' IN t_value) < position('%' IN reverse(t_value))
+                );
+            END IF;
+
+            -- Search for a specific CA.
+            IF t_type = 'CA ID' THEN
+                SELECT ca.ID, ca.NAME, ca.PUBLIC_KEY, ca.NUM_ISSUED, ca.NUM_EXPIRED
+                    INTO t_caID, t_caName, t_caPublicKey, t_numIssued, t_numExpired
+                    FROM ca
+                    WHERE ca.ID = t_value::integer;
+
+                IF t_caName IS NULL THEN
+                    RAISE no_data_found USING MESSAGE = 'CA not found';
+                ELSE
+                    t_text := t_caName;
+                END IF;
+
+                SELECT min(cac.CERTIFICATE_ID)
+                    INTO t_certificateID
+                    FROM ca_certificate cac
+                    WHERE cac.CA_ID = t_caID;
+                IF t_certificateID IS NOT NULL THEN
+                    SELECT html_escape(x509_print(c.CERTIFICATE, NULL, 7999))
+                        INTO t_text
+                        FROM certificate c
+                        WHERE c.ID = t_certificateID;
+                    t_text := replace(t_text, '        Subject:', 'Subject:');
+                END IF;
+
+                t_showMozillaDisclosure := (',' || t_opt || ',') LIKE '%,mozilladisclosure,%';
+                t_temp := '';
+                IF t_opt != '' THEN
+                    t_temp := '&opt=' || RTRIM(t_opt, ',');
+                END IF;
+
+                t_output := t_output || '"ca_id": ' || t_caID::text;
+                t_output := t_output || ', "ca_name_key": "' || t_text || '"';
+
+                t_output := t_output || ', "certificates": [';
+                FOR l_record IN (
+                            SELECT x509_issuerName(c.CERTIFICATE)	ISSUER_NAME,
+                                    c.ID,
+                                    c.ISSUER_CA_ID,
+                                    c.CERTIFICATE,
+                                    x509_notBefore(c.CERTIFICATE)	NOT_BEFORE,
+                                    x509_notAfter(c.CERTIFICATE)	NOT_AFTER
+                                FROM ca_certificate cac, certificate c
+                                    LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                                WHERE cac.CA_ID = t_caID
+                                    AND cac.CERTIFICATE_ID = c.ID
+                                ORDER BY ISSUER_NAME, NOT_BEFORE
+                        ) LOOP
+                    t_output := t_output ||
+                        '{
+                        ';
+                    IF t_showMozillaDisclosure THEN
+                        t_temp3 := '"mozilla_disclosure": ';
+                        SELECT ctp.*
+                            INTO t_ctp
+                            FROM ca_trust_purpose ctp
+                            WHERE ctp.CA_ID = l_record.ISSUER_CA_ID
+                                AND ctp.TRUST_CONTEXT_ID = 5
+                                AND ctp.TRUST_PURPOSE_ID = 1;
+                        IF NOT FOUND THEN
+                            t_temp3 := t_temp3 || '"Not Trusted';
+                            t_ctp.SHORTEST_CHAIN := NULL;
+                        ELSIF NOT t_ctp.IS_TIME_VALID THEN
+                            t_temp3 := t_temp3 || '"Expired';
+                        ELSE
+                            SELECT cc.MOZILLA_DISCLOSURE_STATUS
+                                INTO t_temp2
+                                FROM ccadb_certificate cc
+                                WHERE cc.CERTIFICATE_ID = l_record.ID;
+                            IF FOUND AND (t_temp2 LIKE 'Revoked%') THEN
+                                t_temp3 := t_temp3 || '"Revoked';
+                            ELSIF is_technically_constrained(l_record.CERTIFICATE) THEN
+                                t_temp3 := t_temp3 || '"Constrained';
+                            ELSIF t_ctp.ALL_CHAINS_REVOKED_IN_SALESFORCE OR t_ctp.ALL_CHAINS_REVOKED_VIA_ONECRL THEN
+                                t_temp3 := t_temp3 || '"All Paths Revoked';
+                            ELSIF t_ctp.ALL_CHAINS_TECHNICALLY_CONSTRAINED THEN
+                                t_temp3 := t_temp3 || '"All Paths Constrained';
+                            ELSE
+                                t_temp3 := t_temp3 || '"Valid';
+                            END IF;
+                        END IF;
+                        IF t_ctp.SHORTEST_CHAIN IS NOT NULL THEN
+                            t_temp3 := t_temp3 || ' ' || (t_ctp.SHORTEST_CHAIN + 1)::text;
+                        END IF;
+                        t_output := t_output ||
+                            t_temp3 || '",
+                            ';
+                    END IF;
+                    t_output := t_output ||
+                        '"id": ' || l_record.ID::text ||
+                        ', "not_before": "' || l_record.NOT_BEFORE || '"' ||
+                        ', "not_after": "' || l_record.NOT_AFTER || '"' ||
+                        ', "issuer_ca_id": ' || l_record.ISSUER_CA_ID::text || '}
+                        ';
+                END LOOP;
+
+                t_output := t_output ||
+                    ']
+                    ';
+            END IF;
+
+            t_output := t_output || '}';
+        END IF;
 
 	ELSIF t_type IN (
 				'CT Entry ID',
