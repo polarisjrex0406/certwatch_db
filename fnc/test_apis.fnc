@@ -2001,44 +2001,44 @@ BEGIN
                 <TH>Not After</TH>
             </TR>
             ';
-	FOR l_record IN (
-				SELECT mo.CERTIFICATE_ID, mo.CREATED, mo.LAST_MODIFIED, mo.SUMMARY, mo.BUG_URL, mo.SERIAL_NUMBER,
-						mo.ISSUER_CA_ID, x509_name_print(mo.ISSUER_NAME) ISSUER_NAME_TEXT,
-						x509_name_print(mo.SUBJECT_NAME) SUBJECT_NAME_TEXT, mo.NOT_AFTER
-					FROM mozilla_onecrl mo
-					ORDER BY mo.LAST_MODIFIED DESC NULLS FIRST, mo.SUMMARY, mo.BUG_URL, ISSUER_NAME_TEXT, mo.SERIAL_NUMBER
-			) LOOP
-		t_output := t_output ||
-            '  <TR>
+        FOR l_record IN (
+                    SELECT mo.CERTIFICATE_ID, mo.CREATED, mo.LAST_MODIFIED, mo.SUMMARY, mo.BUG_URL, mo.SERIAL_NUMBER,
+                            mo.ISSUER_CA_ID, x509_name_print(mo.ISSUER_NAME) ISSUER_NAME_TEXT,
+                            x509_name_print(mo.SUBJECT_NAME) SUBJECT_NAME_TEXT, mo.NOT_AFTER
+                        FROM mozilla_onecrl mo
+                        ORDER BY mo.LAST_MODIFIED DESC NULLS FIRST, mo.SUMMARY, mo.BUG_URL, ISSUER_NAME_TEXT, mo.SERIAL_NUMBER
+                ) LOOP
+            t_output := t_output ||
+                '  <TR>
+                    <TD>';
+            IF l_record.CERTIFICATE_ID IS NOT NULL THEN
+                t_output := t_output || '<A href="/?id=' || l_record.CERTIFICATE_ID::text || '" target="_blank">' || coalesce(l_record.CERTIFICATE_ID::text, '') || '</A>';
+            ELSE
+                t_output := t_output || '&nbsp;';
+            END IF;
+            t_output := t_output || '</TD>
+                <TD style="white-space:nowrap">' || coalesce(TO_CHAR(l_record.CREATED, 'YYYY-MM-DD'), 'Unspecified') || '</TD>
+                <TD style="white-space:nowrap">' || coalesce(TO_CHAR(l_record.LAST_MODIFIED, 'YYYY-MM-DD'), 'Unspecified') || '</TD>
+                <TD>' || coalesce(l_record.SUMMARY, '&nbsp;')|| '</TD>
+                <TD><A href="' || l_record.BUG_URL || '" target="_blank">' || substring(l_record.BUG_URL from '[0-9]*$') || '</A></TD>
+                <TD>' || coalesce(encode(l_record.SERIAL_NUMBER, 'hex'), '&nbsp;') || '</TD>
                 <TD>';
-		IF l_record.CERTIFICATE_ID IS NOT NULL THEN
-			t_output := t_output || '<A href="/?id=' || l_record.CERTIFICATE_ID::text || '" target="_blank">' || coalesce(l_record.CERTIFICATE_ID::text, '') || '</A>';
-		ELSE
-			t_output := t_output || '&nbsp;';
-		END IF;
-		t_output := t_output || '</TD>
-            <TD style="white-space:nowrap">' || coalesce(TO_CHAR(l_record.CREATED, 'YYYY-MM-DD'), 'Unspecified') || '</TD>
-            <TD style="white-space:nowrap">' || coalesce(TO_CHAR(l_record.LAST_MODIFIED, 'YYYY-MM-DD'), 'Unspecified') || '</TD>
-            <TD>' || coalesce(l_record.SUMMARY, '&nbsp;')|| '</TD>
-            <TD><A href="' || l_record.BUG_URL || '" target="_blank">' || substring(l_record.BUG_URL from '[0-9]*$') || '</A></TD>
-            <TD>' || coalesce(encode(l_record.SERIAL_NUMBER, 'hex'), '&nbsp;') || '</TD>
-            <TD>';
-		IF l_record.ISSUER_CA_ID IS NOT NULL THEN
-			t_output := t_output || '<A href="/?caID=' || l_record.ISSUER_CA_ID::text || '" style="white-space:normal" target="_blank">';
-		END IF;
-		t_output := t_output || coalesce(l_record.ISSUER_NAME_TEXT, '&nbsp;');
-		IF l_record.ISSUER_CA_ID IS NOT NULL THEN
-			t_output := t_output || '</A>';
-		END IF;
-		t_output := t_output || '</TD>
-                <TD>' || coalesce(l_record.SUBJECT_NAME_TEXT, '&nbsp;') || '</TD>
-                <TD style="white-space:nowrap">' || coalesce(TO_CHAR(l_record.NOT_AFTER, 'YYYY-MM-DD'), '&nbsp;') || '</TD>
-            </TR>
+            IF l_record.ISSUER_CA_ID IS NOT NULL THEN
+                t_output := t_output || '<A href="/?caID=' || l_record.ISSUER_CA_ID::text || '" style="white-space:normal" target="_blank">';
+            END IF;
+            t_output := t_output || coalesce(l_record.ISSUER_NAME_TEXT, '&nbsp;');
+            IF l_record.ISSUER_CA_ID IS NOT NULL THEN
+                t_output := t_output || '</A>';
+            END IF;
+            t_output := t_output || '</TD>
+                    <TD>' || coalesce(l_record.SUBJECT_NAME_TEXT, '&nbsp;') || '</TD>
+                    <TD style="white-space:nowrap">' || coalesce(TO_CHAR(l_record.NOT_AFTER, 'YYYY-MM-DD'), '&nbsp;') || '</TD>
+                </TR>
+                ';
+        END LOOP;
+        t_output := t_output ||
+            '</TABLE>
             ';
-	END LOOP;
-	t_output := t_output ||
-        '</TABLE>
-        ';
 
 	ELSIF t_type = 'microsoft-disclosures' THEN
 		t_output := t_output || microsoft_disclosures();
@@ -2127,1098 +2127,1504 @@ BEGIN
 				(lower(',' || t_opt) LIKE '%,firstresult,%')
 				AND (t_type = 'Serial Number')
 			) THEN
-		t_output := t_output ||
-            ' <SPAN class="whiteongrey">Certificate Search</SPAN>
-            <BR><BR>
-            ';
 
-		t_certSummary := 'Leaf certificate';
-
-		-- Search for a specific Certificate.
-		IF t_type IN ('ID', 'Certificate ASN.1', 'Certification Graph', 'PKI Hierarchy', 'pv-certificate-viewer') THEN
-			SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
-					digest(c.CERTIFICATE, 'sha1'::text),
-					digest(c.CERTIFICATE, 'sha256'::text),
-					x509_serialNumber(c.CERTIFICATE),
-					digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
-					x509_rsamodulus(c.CERTIFICATE),
-					x509_hasROCAFingerprint(c.CERTIFICATE),
-					x509_hasClosePrimes(c.CERTIFICATE),
-					c.CERTIFICATE
-				INTO t_certificateID, t_text, t_issuerCAID, t_caID,
-					t_certificateSHA1,
-					t_certificateSHA256,
-					t_serialNumber,
-					t_spkiSHA256,
-					t_rsaModulus,
-					t_hasROCAFingerprint,
-					t_hasClosePrimes,
-					t_certificate
-				FROM certificate c
-					LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
-					LEFT OUTER JOIN ca_certificate cac ON (c.ID = cac.CERTIFICATE_ID)
-				WHERE c.ID = t_value::bigint;
-		ELSIF t_type = 'SHA-1(Certificate)' THEN
-			SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
-					digest(c.CERTIFICATE, 'sha1'::text),
-					digest(c.CERTIFICATE, 'sha256'::text),
-					x509_serialNumber(c.CERTIFICATE),
-					digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
-					x509_rsamodulus(c.CERTIFICATE),
-					x509_hasROCAFingerprint(c.CERTIFICATE),
-					x509_hasClosePrimes(c.CERTIFICATE),
-					c.CERTIFICATE
-				INTO t_certificateID, t_text, t_issuerCAID, t_caID,
-					t_certificateSHA1,
-					t_certificateSHA256,
-					t_serialNumber,
-					t_spkiSHA256,
-					t_rsaModulus,
-					t_hasROCAFingerprint,
-					t_hasClosePrimes,
-					t_certificate
-				FROM certificate c
-					LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
-					LEFT OUTER JOIN ca_certificate cac
-									ON (c.ID = cac.CERTIFICATE_ID)
-				WHERE digest(c.CERTIFICATE, 'sha1') = t_bytea;
-		ELSIF t_type = 'SHA-256(Certificate)' THEN
-			SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
-					digest(c.CERTIFICATE, 'sha1'::text),
-					digest(c.CERTIFICATE, 'sha256'::text),
-					x509_serialNumber(c.CERTIFICATE),
-					digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
-					x509_rsamodulus(c.CERTIFICATE),
-					x509_hasROCAFingerprint(c.CERTIFICATE),
-					x509_hasClosePrimes(c.CERTIFICATE),
-					c.CERTIFICATE
-				INTO t_certificateID, t_text, t_issuerCAID, t_caID,
-					t_certificateSHA1,
-					t_certificateSHA256,
-					t_serialNumber,
-					t_spkiSHA256,
-					t_rsaModulus,
-					t_hasROCAFingerprint,
-					t_hasClosePrimes,
-					t_certificate
-				FROM certificate c
-					LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
-					LEFT OUTER JOIN ca_certificate cac
-									ON (c.ID = cac.CERTIFICATE_ID)
-				WHERE digest(c.CERTIFICATE, 'sha256') = t_bytea;
-		ELSIF t_type = 'Serial Number' THEN
-			SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
-					digest(c.CERTIFICATE, 'sha1'::text),
-					digest(c.CERTIFICATE, 'sha256'::text),
-					x509_serialNumber(c.CERTIFICATE),
-					digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
-					x509_rsamodulus(c.CERTIFICATE),
-					x509_hasROCAFingerprint(c.CERTIFICATE),
-					x509_hasClosePrimes(c.CERTIFICATE),
-					c.CERTIFICATE
-				INTO t_certificateID, t_text, t_issuerCAID, t_caID,
-					t_certificateSHA1,
-					t_certificateSHA256,
-					t_serialNumber,
-					t_spkiSHA256,
-					t_rsaModulus,
-					t_hasROCAFingerprint,
-					t_hasClosePrimes,
-					t_certificate
-				FROM certificate c
-					LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
-					LEFT OUTER JOIN ca_certificate cac
-									ON (c.ID = cac.CERTIFICATE_ID)
-				WHERE x509_serialNumber(c.CERTIFICATE) = t_bytea
-				LIMIT 1;
-		END IF;
-		IF t_text IS NULL THEN
-			RAISE no_data_found USING MESSAGE = 'Certificate not found ';
-		END IF;
-
-		-- For embedded SCTs, insert the Log Names.
-		t_offset := 1;
-		LOOP
-			t_pos1 := strpos(substr(t_text, t_offset), 'Log ID    : ');
-			EXIT WHEN t_pos1 = 0;
-			t_pos1 := t_pos1 + t_offset - 1;
-			t_temp := translate(
-				substr(t_text, t_pos1 + 12, 128), ': ' || chr(10), ''
-			);
-			SELECT ctl.NAME
-				INTO t_temp
-				FROM ct_log ctl
-				WHERE digest(ctl.PUBLIC_KEY, 'sha256') = decode(t_temp, 'hex');
-			t_temp := 'Log Name  : ' || coalesce(html_escape(t_temp), 'Unknown')
-						|| chr(10) || '                    ';
-			t_text := substr(t_text, 1, t_pos1 - 1) || t_temp
-						|| substr(t_text, t_pos1);
-			t_offset := t_pos1 + length(t_temp) + 1;
-		END LOOP;
-
-		t_text := replace(html_escape(t_text), chr(10), '<BR>');
-		t_text := replace(t_text, ', DNS:', '<BR>                DNS:');
-		t_text := replace(t_text, ', IP Address:', '<BR>                IP Address:');
-		t_text := replace(t_text, ' ', '&nbsp;');
-		t_text := replace(
-			t_text, 'Certificate:<BR>&nbsp;&nbsp;&nbsp;&nbsp;',
-			'<A href="?d=' || t_certificateID::text
-					|| '">Certificate:</A><BR>&nbsp;&nbsp;&nbsp;&nbsp;'
-		);
-		t_text := replace(
-			t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Serial&nbsp;Number:',
-				'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?serial='
-						|| encode(t_serialNumber, 'hex')
-						|| '">Serial&nbsp;Number:</A>'
-		);
-		t_temp := '';
-		IF t_opt != '' THEN
-			t_temp := '&opt=' || RTRIM(t_opt, ',');
-		END IF;
-		IF t_issuerCAID IS NOT NULL THEN
-			t_text := replace(
-				t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Issuer:<BR>',
-				'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?caid='
-						|| t_issuerCAID::text
-						|| t_temp || '">Issuer:</A> <SPAN class="small">(CA ID: ' || t_issuerCAID::text || ')</SPAN><BR>'
-			);
-		END IF;
-		IF x509_notAfter(t_certificate) < now() AT TIME ZONE 'UTC' THEN
-			t_text := replace(
-				t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity<BR>',
-				'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity <SPAN class="small">(Expired)</SPAN><BR>'
-			);
-		ELSIF x509_notBefore(t_certificate) > now() AT TIME ZONE 'UTC' THEN
-			t_text := replace(
-				t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity<BR>',
-				'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity <SPAN class="small">(Not Yet Valid)</SPAN><BR>'
-			);
-		END IF;
-		IF t_caID IS NOT NULL THEN
-			t_text := replace(
-				t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Subject:<BR>',
-				'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?caid='
-						|| t_caID::text
-						|| t_temp || '">Subject:</A> <SPAN class="small">(CA ID: ' || t_caID::text || ')</SPAN><BR>'
-			);
-			IF t_caID = coalesce(t_issuerCAID, -1) THEN
-				t_certSummary := 'Root certificate';
-			ELSE
-				t_certSummary := 'Intermediate certificate';
-			END IF;
-		END IF;
-		IF t_spkiSHA256 IS NOT NULL THEN
-			t_text := replace(
-				t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Subject&nbsp;Public&nbsp;Key&nbsp;Info:<BR>',
-				'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?spkisha256='
-						|| encode(t_spkiSHA256, 'hex')
-						|| '">Subject&nbsp;Public&nbsp;Key&nbsp;Info:</A><BR>'
-			);
-		END IF;
-		t_text := replace(
-			t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;X509v3&nbsp;Subject&nbsp;Key&nbsp;Identifier:&nbsp;<BR>',
-				'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?ski='
-						|| coalesce(encode(x509_subjectKeyIdentifier(t_certificate), 'hex'), '')
-						|| '">X509v3&nbsp;Subject&nbsp;Key&nbsp;Identifier:</A><BR>'
-		);
-		t_bytea := x509_authorityKeyId(t_certificate);
-		IF t_bytea IS NOT NULL THEN
-			t_text := replace(
-				t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;X509v3&nbsp;Authority&nbsp;Key&nbsp;Identifier:&nbsp;<BR>',
-					'<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?ski='
-							|| coalesce(encode(t_bytea, 'hex'), '')
-							|| '">X509v3&nbsp;Authority&nbsp;Key&nbsp;Identifier:</A><BR>'
-			);
-		END IF;
-
-		t_offset := strpos(t_text, 'CT&nbsp;Precertificate');
-		IF t_offset != 0 THEN
-			IF substr(t_text, t_offset, 34) = 'CT&nbsp;Precertificate&nbsp;Poison' THEN
-				t_certSummary := 'Precertificate';
-			END IF;
-			SELECT c.ID::text
-				INTO t_temp
-				FROM certificate c
-				WHERE x509_serialNumber(c.certificate) = t_serialNumber
-					AND c.ISSUER_CA_ID = t_issuerCAID
-					AND c.ID != t_certificateID;
-			IF t_temp IS NOT NULL THEN
-				IF t_certSummary = 'Precertificate' THEN
-					t_text := substr(t_text, 1, t_offset - 1)
-								|| 'CT Pre<A href="?id=' || t_temp
-										|| '">certificate</A>'
-								|| substr(t_text, t_offset + 22);
-				ELSE
-					t_text := substr(t_text, 1, t_offset - 1)
-								|| 'CT <A href="?id=' || t_temp
-										|| '">Precertificate</A>'
-								|| substr(t_text, t_offset + 22);
-				END IF;
-			END IF;
-		END IF;
-
-		t_output := t_output ||
-            '<TABLE>
-            <TR>
-                <TH class="outer">Criteria</TH>
-                <TD class="outer">' || html_escape(t_type) || ' = ''' || html_escape(t_value) || '''</TD>
-            </TR>
-            </TABLE>
-            <BR>
-            <TABLE>
-            <TR>
-                <TH class="outer">crt.sh ID</TH>
-                <TD class="outer">';
-		IF t_certificateID IS NOT NULL THEN
-			t_output := t_output || '<A href="?id=' || t_certificateID::text || '">' || t_certificateID::text || '</A>';
-		ELSE
-			t_output := t_output || '<I>Not found</I>';
-		END IF;
-		t_output := t_output || '</TD>
-            </TR>
-            ';
-
-		t_showMetadata := lower(',' || t_opt) NOT LIKE '%,nometadata,%';
-		IF t_showMetadata THEN
-			t_output := t_output ||
-                '  <TR>
-                    <TH class="outer">Summary</TH>
-                    <TD class="outer">' || t_certSummary || '</TD>
-                </TR>
-                <TR>
-                    <TH class="outer">Certificate Transparency</TH>
-                    <TD class="outer">
-                    <DIV style="overflow-y:scroll;height:100px">
-                        <TABLE style="margin-left:0px">
-                        <TR>
-                            <TD>
+        IF t_outputType = 'html' THEN
+            t_output := t_output ||
+                ' <SPAN class="whiteongrey">Certificate Search</SPAN>
+                <BR><BR>
                 ';
 
-			t_temp := '';
-			FOR l_record IN (
-						SELECT ctl.NAME, ctl.URL, ctl.OPERATOR, ctle.ENTRY_ID, ctle.ENTRY_TIMESTAMP
-							FROM ct_log_entry ctle, ct_log ctl
-							WHERE ctle.CERTIFICATE_ID = t_certificateID
-								AND ctle.CT_LOG_ID = ctl.ID
-							ORDER BY ctle.ENTRY_TIMESTAMP
-					) LOOP
-				t_temp := t_temp ||
+            t_certSummary := 'Leaf certificate';
+
+            -- Search for a specific Certificate.
+            IF t_type IN ('ID', 'Certificate ASN.1', 'Certification Graph', 'PKI Hierarchy', 'pv-certificate-viewer') THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE c.ID = t_value::bigint;
+            ELSIF t_type = 'SHA-1(Certificate)' THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac
+                                        ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE digest(c.CERTIFICATE, 'sha1') = t_bytea;
+            ELSIF t_type = 'SHA-256(Certificate)' THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac
+                                        ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE digest(c.CERTIFICATE, 'sha256') = t_bytea;
+            ELSIF t_type = 'Serial Number' THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac
+                                        ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE x509_serialNumber(c.CERTIFICATE) = t_bytea
+                    LIMIT 1;
+            END IF;
+            IF t_text IS NULL THEN
+                RAISE no_data_found USING MESSAGE = 'Certificate not found ';
+            END IF;
+
+            -- For embedded SCTs, insert the Log Names.
+            t_offset := 1;
+            LOOP
+                t_pos1 := strpos(substr(t_text, t_offset), 'Log ID    : ');
+                EXIT WHEN t_pos1 = 0;
+                t_pos1 := t_pos1 + t_offset - 1;
+                t_temp := translate(
+                    substr(t_text, t_pos1 + 12, 128), ': ' || chr(10), ''
+                );
+                SELECT ctl.NAME
+                    INTO t_temp
+                    FROM ct_log ctl
+                    WHERE digest(ctl.PUBLIC_KEY, 'sha256') = decode(t_temp, 'hex');
+                t_temp := 'Log Name  : ' || coalesce(html_escape(t_temp), 'Unknown')
+                            || chr(10) || '                    ';
+                t_text := substr(t_text, 1, t_pos1 - 1) || t_temp
+                            || substr(t_text, t_pos1);
+                t_offset := t_pos1 + length(t_temp) + 1;
+            END LOOP;
+
+            t_text := replace(html_escape(t_text), chr(10), '<BR>');
+            t_text := replace(t_text, ', DNS:', '<BR>                DNS:');
+            t_text := replace(t_text, ', IP Address:', '<BR>                IP Address:');
+            t_text := replace(t_text, ' ', '&nbsp;');
+            t_text := replace(
+                t_text, 'Certificate:<BR>&nbsp;&nbsp;&nbsp;&nbsp;',
+                '<A href="?d=' || t_certificateID::text
+                        || '">Certificate:</A><BR>&nbsp;&nbsp;&nbsp;&nbsp;'
+            );
+            t_text := replace(
+                t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Serial&nbsp;Number:',
+                    '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?serial='
+                            || encode(t_serialNumber, 'hex')
+                            || '">Serial&nbsp;Number:</A>'
+            );
+            t_temp := '';
+            IF t_opt != '' THEN
+                t_temp := '&opt=' || RTRIM(t_opt, ',');
+            END IF;
+            IF t_issuerCAID IS NOT NULL THEN
+                t_text := replace(
+                    t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Issuer:<BR>',
+                    '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?caid='
+                            || t_issuerCAID::text
+                            || t_temp || '">Issuer:</A> <SPAN class="small">(CA ID: ' || t_issuerCAID::text || ')</SPAN><BR>'
+                );
+            END IF;
+            IF x509_notAfter(t_certificate) < now() AT TIME ZONE 'UTC' THEN
+                t_text := replace(
+                    t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity<BR>',
+                    '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity <SPAN class="small">(Expired)</SPAN><BR>'
+                );
+            ELSIF x509_notBefore(t_certificate) > now() AT TIME ZONE 'UTC' THEN
+                t_text := replace(
+                    t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity<BR>',
+                    '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Validity <SPAN class="small">(Not Yet Valid)</SPAN><BR>'
+                );
+            END IF;
+            IF t_caID IS NOT NULL THEN
+                t_text := replace(
+                    t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Subject:<BR>',
+                    '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?caid='
+                            || t_caID::text
+                            || t_temp || '">Subject:</A> <SPAN class="small">(CA ID: ' || t_caID::text || ')</SPAN><BR>'
+                );
+                IF t_caID = coalesce(t_issuerCAID, -1) THEN
+                    t_certSummary := 'Root certificate';
+                ELSE
+                    t_certSummary := 'Intermediate certificate';
+                END IF;
+            END IF;
+            IF t_spkiSHA256 IS NOT NULL THEN
+                t_text := replace(
+                    t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Subject&nbsp;Public&nbsp;Key&nbsp;Info:<BR>',
+                    '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?spkisha256='
+                            || encode(t_spkiSHA256, 'hex')
+                            || '">Subject&nbsp;Public&nbsp;Key&nbsp;Info:</A><BR>'
+                );
+            END IF;
+            t_text := replace(
+                t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;X509v3&nbsp;Subject&nbsp;Key&nbsp;Identifier:&nbsp;<BR>',
+                    '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?ski='
+                            || coalesce(encode(x509_subjectKeyIdentifier(t_certificate), 'hex'), '')
+                            || '">X509v3&nbsp;Subject&nbsp;Key&nbsp;Identifier:</A><BR>'
+            );
+            t_bytea := x509_authorityKeyId(t_certificate);
+            IF t_bytea IS NOT NULL THEN
+                t_text := replace(
+                    t_text, '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;X509v3&nbsp;Authority&nbsp;Key&nbsp;Identifier:&nbsp;<BR>',
+                        '<BR>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<A href="?ski='
+                                || coalesce(encode(t_bytea, 'hex'), '')
+                                || '">X509v3&nbsp;Authority&nbsp;Key&nbsp;Identifier:</A><BR>'
+                );
+            END IF;
+
+            t_offset := strpos(t_text, 'CT&nbsp;Precertificate');
+            IF t_offset != 0 THEN
+                IF substr(t_text, t_offset, 34) = 'CT&nbsp;Precertificate&nbsp;Poison' THEN
+                    t_certSummary := 'Precertificate';
+                END IF;
+                SELECT c.ID::text
+                    INTO t_temp
+                    FROM certificate c
+                    WHERE x509_serialNumber(c.certificate) = t_serialNumber
+                        AND c.ISSUER_CA_ID = t_issuerCAID
+                        AND c.ID != t_certificateID;
+                IF t_temp IS NOT NULL THEN
+                    IF t_certSummary = 'Precertificate' THEN
+                        t_text := substr(t_text, 1, t_offset - 1)
+                                    || 'CT Pre<A href="?id=' || t_temp
+                                            || '">certificate</A>'
+                                    || substr(t_text, t_offset + 22);
+                    ELSE
+                        t_text := substr(t_text, 1, t_offset - 1)
+                                    || 'CT <A href="?id=' || t_temp
+                                            || '">Precertificate</A>'
+                                    || substr(t_text, t_offset + 22);
+                    END IF;
+                END IF;
+            END IF;
+
+            t_output := t_output ||
+                '<TABLE>
+                <TR>
+                    <TH class="outer">Criteria</TH>
+                    <TD class="outer">' || html_escape(t_type) || ' = ''' || html_escape(t_value) || '''</TD>
+                </TR>
+                </TABLE>
+                <BR>
+                <TABLE>
+                <TR>
+                    <TH class="outer">crt.sh ID</TH>
+                    <TD class="outer">';
+            IF t_certificateID IS NOT NULL THEN
+                t_output := t_output || '<A href="?id=' || t_certificateID::text || '">' || t_certificateID::text || '</A>';
+            ELSE
+                t_output := t_output || '<I>Not found</I>';
+            END IF;
+            t_output := t_output || '</TD>
+                </TR>
+                ';
+
+            t_showMetadata := lower(',' || t_opt) NOT LIKE '%,nometadata,%';
+            IF t_showMetadata THEN
+                t_output := t_output ||
                     '  <TR>
-                        <TD>' || to_char(l_record.ENTRY_TIMESTAMP, 'YYYY-MM-DD')
-                                            || '&nbsp; <FONT class="small">'
-                                            || to_char(l_record.ENTRY_TIMESTAMP, 'HH24:MI:SS UTC')
-                                            || '</FONT></TD>
-                        <TD>' || l_record.ENTRY_ID::text || '</TD>
-                        <TD>' || html_escape(l_record.OPERATOR) || '</TD>
-                        <TD>' || html_escape(l_record.URL) || '</TD>
+                        <TH class="outer">Summary</TH>
+                        <TD class="outer">' || t_certSummary || '</TD>
                     </TR>
-                    ';
-			END LOOP;
-			IF t_temp = '' THEN
-				t_temp := '  <TR><TD colspan="4">No entries found</TD></TR>';
-			END IF;
-			t_output := t_output ||
-                '<TABLE class="options" style="margin-left:0px">
-                <TR>
-                    <TD colspan="4" style="border:none"><I>Log entries for this certificate:</I></TD>
-                </TR>
-                <TR>
-                    <TH>Timestamp</TH>
-                    <TH>Entry #</TH>
-                    <TH>Log Operator</TH>
-                    <TH>Log URL</TH>
-                </TR>
-                ' || t_temp ||
-                '</TABLE>
-                            </TD>
-                ';
-
-			IF t_caID = coalesce(t_issuerCAID, -1) THEN
-				t_output := t_output ||
-                    '            <TD style="border:none;width:15px"></TD>
+                    <TR>
+                        <TH class="outer">Certificate Transparency</TH>
+                        <TD class="outer">
+                        <DIV style="overflow-y:scroll;height:100px">
+                            <TABLE style="margin-left:0px">
+                            <TR>
                                 <TD>
                     ';
-				t_temp := '';
-				FOR l_record IN (
-					SELECT ctl.CHROME_INCLUSION_STATUS, ctl.APPLE_INCLUSION_STATUS, ctl.OPERATOR, ctl.URL
-						FROM accepted_roots ar, ct_log ctl
-						WHERE ar.CERTIFICATE_ID = t_certificateID
-							AND ar.CT_LOG_ID = ctl.ID
-							AND ctl.IS_ACTIVE
-						ORDER BY
-							CASE coalesce(ctl.CHROME_INCLUSION_STATUS, '')
-								WHEN 'Usable' THEN 1
-								WHEN '' THEN 3
-								ELSE 2
-							END,
-							CASE coalesce(ctl.APPLE_INCLUSION_STATUS, '')
-								WHEN 'Usable' THEN 1
-								WHEN '' THEN 3
-								ELSE 2
-							END,
-							ctl.OPERATOR, ctl.URL
-				) LOOP
-					t_temp := t_temp ||
+
+                t_temp := '';
+                FOR l_record IN (
+                            SELECT ctl.NAME, ctl.URL, ctl.OPERATOR, ctle.ENTRY_ID, ctle.ENTRY_TIMESTAMP
+                                FROM ct_log_entry ctle, ct_log ctl
+                                WHERE ctle.CERTIFICATE_ID = t_certificateID
+                                    AND ctle.CT_LOG_ID = ctl.ID
+                                ORDER BY ctle.ENTRY_TIMESTAMP
+                        ) LOOP
+                    t_temp := t_temp ||
                         '  <TR>
-                            <TD>' || coalesce(l_record.CHROME_INCLUSION_STATUS, '&nbsp;') || '</TD>
-                            <TD>' || coalesce(l_record.APPLE_INCLUSION_STATUS, '&nbsp;') || '</TD>
-                            <TD>' || coalesce(l_record.OPERATOR, '&nbsp;') || '</TD>
-                            <TD>' || l_record.URL || '</TD>
+                            <TD>' || to_char(l_record.ENTRY_TIMESTAMP, 'YYYY-MM-DD')
+                                                || '&nbsp; <FONT class="small">'
+                                                || to_char(l_record.ENTRY_TIMESTAMP, 'HH24:MI:SS UTC')
+                                                || '</FONT></TD>
+                            <TD>' || l_record.ENTRY_ID::text || '</TD>
+                            <TD>' || html_escape(l_record.OPERATOR) || '</TD>
+                            <TD>' || html_escape(l_record.URL) || '</TD>
                         </TR>
                         ';
-				END LOOP;
-				IF t_temp = '' THEN
-					t_temp := '  <TR><TD colspan="4">No logs found</TD></TR>';
-				END IF;
-				t_output := t_output ||
+                END LOOP;
+                IF t_temp = '' THEN
+                    t_temp := '  <TR><TD colspan="4">No entries found</TD></TR>';
+                END IF;
+                t_output := t_output ||
                     '<TABLE class="options" style="margin-left:0px">
                     <TR>
-                        <TD colspan="4" style="border:none"><I>Active Logs for which this certificate is an Accepted Root Certificate:</I></TD>
+                        <TD colspan="4" style="border:none"><I>Log entries for this certificate:</I></TD>
                     </TR>
                     <TR>
-                        <TH>Chrome Status</TH>
-                        <TH>Apple Status</TH>
+                        <TH>Timestamp</TH>
+                        <TH>Entry #</TH>
                         <TH>Log Operator</TH>
                         <TH>Log URL</TH>
                     </TR>
-                    ' || t_temp || '
-                    </TABLE>
+                    ' || t_temp ||
+                    '</TABLE>
                                 </TD>
                     ';
-			END IF;
 
-			t_output := t_output ||
-                '            <TD style="border:none;width:15px"></TD>
-                        </TR>
-                        </TABLE>
-                    </DIV>
-                    </TD>
-                </TR>
-                ';
-
-			IF t_caID IS NOT NULL THEN
-				t_output := t_output ||
-                    '  <TR>
-                        <TH class="outer">Audit details<BR>
-                        <DIV class="small" style="padding-top:3px">Disclosed via the
-                            <A href="//ccadb.my.salesforce-sites.com/mozilla/PublicAllIntermediateCerts" target="_blank">CCADB</A></DIV>
-                        </TH>
-                        <TD class="outer">
-                    ';
-				t_temp := NULL;
-				t_temp2 := NULL;
-				FOR l_record IN (
-							SELECT *
-								FROM ccadb_certificate cc
-								WHERE cc.CCADB_RECORD_ID IS NOT NULL
-									AND cc.CERTIFICATE_ID = t_certificateID
-						) LOOP
-					IF t_temp IS NULL THEN
-						t_temp :=
-                            '<TABLE class="options" style="margin-left:0px">
-                            <TR>
-                                <TH>Auditor</TH>
-                                <TH>Standard Audit</TH>
-                                <TH>BR Audit</TH>
-                                <TH>EV SSL Audit</TH>
-                                <TH>Documents</TH>
-                                <TH>CCADB</TH>
-                                <TH>Owner / Certificate</TH>
-                            </TR>
-                            ';
-					END IF;
-					t_temp := t_temp ||
-                        '  <TR>
-                            <TD style="vertical-align:middle">' || coalesce(l_record.AUDITOR, '') || '</TD>
-                            <TD style="vertical-align:middle">' || coalesce(l_record.STANDARD_AUDIT_TYPE, 'Not disclosed');
-					IF coalesce(l_record.STANDARD_AUDIT_URL, '') LIKE '%://%' THEN
-						t_temp := t_temp || ':
-                                <A href="' || l_record.STANDARD_AUDIT_URL || '" target="_blank">' || coalesce(l_record.STANDARD_AUDIT_DATE::text, 'Yes') || '</A>
-                                <BR><FONT style="font-size:8pt">(' || l_record.STANDARD_AUDIT_START || ' to ' || l_record.STANDARD_AUDIT_END || ')</FONT></TD>
-                            ';
-					END IF;
-					t_temp := t_temp ||
-                        '    <TD style="vertical-align:middle">' || coalesce(l_record.BRSSL_AUDIT_TYPE, 'No');
-                                            IF coalesce(l_record.BRSSL_AUDIT_URL, '') LIKE '%://%' THEN
-                                                t_temp := t_temp || ':
-                            <A href="' || l_record.BRSSL_AUDIT_URL || '" target="_blank">' || coalesce(l_record.BRSSL_AUDIT_DATE::text, 'Yes') || '</A>
-                            <BR><FONT style="font-size:8pt">(' || l_record.BRSSL_AUDIT_START || ' to ' || l_record.BRSSL_AUDIT_END || ')</FONT></TD>
+                IF t_caID = coalesce(t_issuerCAID, -1) THEN
+                    t_output := t_output ||
+                        '            <TD style="border:none;width:15px"></TD>
+                                    <TD>
                         ';
-					END IF;
-					t_temp := t_temp ||
-                        '    <TD style="vertical-align:middle">' || coalesce(l_record.EVSSL_AUDIT_TYPE, 'No');
-                                            IF coalesce(l_record.EVSSL_AUDIT_URL, '') LIKE '%://%' THEN
-                                                t_temp := t_temp || ':
-                            <A href="' || l_record.EVSSL_AUDIT_URL || '" target="_blank">' || coalesce(l_record.EVSSL_AUDIT_DATE::text, 'Yes') || '</A>
-                            <BR><FONT style="font-size:8pt">(' || l_record.EVSSL_AUDIT_START || ' to ' || l_record.EVSSL_AUDIT_END || ')</FONT></TD>
-                        ';
-					END IF;
-					t_temp := t_temp ||
-                        '    <TD style="vertical-align:middle">
-                        ';
-					FOREACH t_temp3 IN ARRAY string_to_array(coalesce(l_record.CP_URL, ''), '; ') LOOP
-						t_temp := t_temp ||
-                            '      <A href="' || t_temp3 || '" target="blank">CP</A>
-                            ';
-					END LOOP;
-					FOREACH t_temp3 IN ARRAY string_to_array(coalesce(l_record.CPS_URL, ''), '; ') LOOP
-						t_temp := t_temp ||
-                            '      <A href="' || t_temp3 || '" target="blank">CPS</A>
-                            ';
-					END LOOP;
-					FOREACH t_temp3 IN ARRAY string_to_array(coalesce(l_record.CP_CPS_URL, ''), '; ') LOOP
-						t_temp := t_temp ||
-                            '      <A href="' || t_temp3 || '" target="blank">CP/CPS</A>
-                            ';
-					END LOOP;
-					t_temp := t_temp ||
-                        '    </TD>
-                            <TD style="vertical-align:middle">';
-					IF l_record.CCADB_RECORD_ID IS NOT NULL THEN
-						t_temp := t_temp || '<A href="//ccadb.my.site.com/' || l_record.CCADB_RECORD_ID || '" target="_blank">' || l_record.CCADB_RECORD_ID || '</A>';
-					ELSE
-						t_temp := t_temp || '&nbsp;';
-					END IF;
-					t_temp := t_temp || '</TD>
-                        <TD style="vertical-align:middle">';
-					IF l_record.INCLUDED_CERTIFICATE_ID IS NULL THEN
-						t_temp := t_temp || coalesce(html_escape(l_record.INCLUDED_CERTIFICATE_OWNER), '&nbsp;');
-					ELSE
-						t_temp := t_temp || '<A href="/?id=' || l_record.INCLUDED_CERTIFICATE_ID::text || '">Root</A> CA: ' || coalesce(html_escape(l_record.INCLUDED_CERTIFICATE_OWNER), '&nbsp;') || '
-                            <BR>This CA: ' || coalesce(html_escape(coalesce(nullif(trim(l_record.SUBORDINATE_CA_OWNER), ''), l_record.INCLUDED_CERTIFICATE_OWNER)), '&nbsp;');
-					END IF;
-					t_temp := t_temp || '</TD>
-                        </TR>
-                        ';
-					IF l_record.CERT_RECORD_TYPE = 'Root Certificate' THEN
-						t_temp2 :=
+                    t_temp := '';
+                    FOR l_record IN (
+                        SELECT ctl.CHROME_INCLUSION_STATUS, ctl.APPLE_INCLUSION_STATUS, ctl.OPERATOR, ctl.URL
+                            FROM accepted_roots ar, ct_log ctl
+                            WHERE ar.CERTIFICATE_ID = t_certificateID
+                                AND ar.CT_LOG_ID = ctl.ID
+                                AND ctl.IS_ACTIVE
+                            ORDER BY
+                                CASE coalesce(ctl.CHROME_INCLUSION_STATUS, '')
+                                    WHEN 'Usable' THEN 1
+                                    WHEN '' THEN 3
+                                    ELSE 2
+                                END,
+                                CASE coalesce(ctl.APPLE_INCLUSION_STATUS, '')
+                                    WHEN 'Usable' THEN 1
+                                    WHEN '' THEN 3
+                                    ELSE 2
+                                END,
+                                ctl.OPERATOR, ctl.URL
+                    ) LOOP
+                        t_temp := t_temp ||
                             '  <TR>
-                                <TH class="outer">Telemetry<BR>
-                                <DIV class="small" style="padding-top:3px">Collected by
-                                    <A href="//mzl.la/2nvPgJs" target="_blank">Mozilla</A></DIV>
-                                </TH>
-                                <TD class="outer"><A href="mozilla-certvalidations?group=version&id=' || t_certificateID::text || '" target="_blank">CERT_VALIDATION_SUCCESS_BY_CA</A></TD>
+                                <TD>' || coalesce(l_record.CHROME_INCLUSION_STATUS, '&nbsp;') || '</TD>
+                                <TD>' || coalesce(l_record.APPLE_INCLUSION_STATUS, '&nbsp;') || '</TD>
+                                <TD>' || coalesce(l_record.OPERATOR, '&nbsp;') || '</TD>
+                                <TD>' || l_record.URL || '</TD>
                             </TR>
                             ';
-					END IF;
-				END LOOP;
-				IF t_temp IS NOT NULL THEN
-					t_temp := t_temp ||
-                        '</TABLE>';
-				ELSE
-					t_temp := 'Not Disclosed';
-				END IF;
+                    END LOOP;
+                    IF t_temp = '' THEN
+                        t_temp := '  <TR><TD colspan="4">No logs found</TD></TR>';
+                    END IF;
+                    t_output := t_output ||
+                        '<TABLE class="options" style="margin-left:0px">
+                        <TR>
+                            <TD colspan="4" style="border:none"><I>Active Logs for which this certificate is an Accepted Root Certificate:</I></TD>
+                        </TR>
+                        <TR>
+                            <TH>Chrome Status</TH>
+                            <TH>Apple Status</TH>
+                            <TH>Log Operator</TH>
+                            <TH>Log URL</TH>
+                        </TR>
+                        ' || t_temp || '
+                        </TABLE>
+                                    </TD>
+                        ';
+                END IF;
 
-				t_output := t_output || t_temp || '
+                t_output := t_output ||
+                    '            <TD style="border:none;width:15px"></TD>
+                            </TR>
+                            </TABLE>
+                        </DIV>
                         </TD>
                     </TR>
-                    ' || coalesce(t_temp2, '');
-			END IF;
+                    ';
 
-			SELECT '<SPAN style="color:#CC0000">Revoked'
-					|| CASE coalesce(cr.REASON_CODE, 0)
-							WHEN 0 THEN ''
-							WHEN 1 THEN ' (keyCompromise)'
-							WHEN 2 THEN ' (cACompromise)'
-							WHEN 3 THEN ' (affiliationChanged)'
-							WHEN 4 THEN ' (superseded)'
-							WHEN 5 THEN ' (cessationOfOperation)'
-							WHEN 6 THEN ' (certificateHold)'
-							WHEN 8 THEN ' (removeFromCRL)'
-							WHEN 9 THEN ' (privilegeWithdrawn)'
-							WHEN 10 THEN ' (aACompromise)'
-							ELSE ' (UNKNOWN)'
-						END
-					|| '</SPAN></TD><TD>'
-					|| to_char(cr.REVOCATION_DATE, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
-					|| to_char(cr.REVOCATION_DATE, 'HH24:MI:SS UTC') || '</FONT></TD><TD>'
-					|| to_char(cr.LAST_SEEN_CHECK_DATE, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
-					|| to_char(cr.LAST_SEEN_CHECK_DATE, 'HH24:MI:SS UTC') || '</FONT>'
-				INTO t_temp0
-				FROM crl_revoked cr
-				WHERE cr.CA_ID = t_issuerCAID
-					AND cr.SERIAL_NUMBER = t_serialNumber;
-			t_count := 1;
-			IF NOT FOUND THEN
-				SELECT count(*)
-					INTO t_count
-					FROM crl
-					WHERE crl.CA_ID = t_issuerCAID
-						AND crl.ERROR_MESSAGE IS NULL
-						AND crl.NEXT_UPDATE > now() AT TIME ZONE 'UTC';
-				IF t_count > 0 THEN
-					t_temp0 := 'Not Revoked';
-				ELSE
-					t_temp0 := '<SPAN style="color:#FF9400">Unknown</SPAN>';
-				END IF;
-				IF x509_notAfter(t_certificate) < now() AT TIME ZONE 'UTC' THEN
-					t_temp0 := t_temp0 || ' (Expired)';
-				END IF;
-				t_temp0 := t_temp0 || '</TD><TD><SPAN style="color:#888888">n/a</SPAN></TD><TD><SPAN style="color:#888888">n/a</SPAN>';
-			END IF;
+                IF t_caID IS NOT NULL THEN
+                    t_output := t_output ||
+                        '  <TR>
+                            <TH class="outer">Audit details<BR>
+                            <DIV class="small" style="padding-top:3px">Disclosed via the
+                                <A href="//ccadb.my.salesforce-sites.com/mozilla/PublicAllIntermediateCerts" target="_blank">CCADB</A></DIV>
+                            </TH>
+                            <TD class="outer">
+                        ';
+                    t_temp := NULL;
+                    t_temp2 := NULL;
+                    FOR l_record IN (
+                                SELECT *
+                                    FROM ccadb_certificate cc
+                                    WHERE cc.CCADB_RECORD_ID IS NOT NULL
+                                        AND cc.CERTIFICATE_ID = t_certificateID
+                            ) LOOP
+                        IF t_temp IS NULL THEN
+                            t_temp :=
+                                '<TABLE class="options" style="margin-left:0px">
+                                <TR>
+                                    <TH>Auditor</TH>
+                                    <TH>Standard Audit</TH>
+                                    <TH>BR Audit</TH>
+                                    <TH>EV SSL Audit</TH>
+                                    <TH>Documents</TH>
+                                    <TH>CCADB</TH>
+                                    <TH>Owner / Certificate</TH>
+                                </TR>
+                                ';
+                        END IF;
+                        t_temp := t_temp ||
+                            '  <TR>
+                                <TD style="vertical-align:middle">' || coalesce(l_record.AUDITOR, '') || '</TD>
+                                <TD style="vertical-align:middle">' || coalesce(l_record.STANDARD_AUDIT_TYPE, 'Not disclosed');
+                        IF coalesce(l_record.STANDARD_AUDIT_URL, '') LIKE '%://%' THEN
+                            t_temp := t_temp || ':
+                                    <A href="' || l_record.STANDARD_AUDIT_URL || '" target="_blank">' || coalesce(l_record.STANDARD_AUDIT_DATE::text, 'Yes') || '</A>
+                                    <BR><FONT style="font-size:8pt">(' || l_record.STANDARD_AUDIT_START || ' to ' || l_record.STANDARD_AUDIT_END || ')</FONT></TD>
+                                ';
+                        END IF;
+                        t_temp := t_temp ||
+                            '    <TD style="vertical-align:middle">' || coalesce(l_record.BRSSL_AUDIT_TYPE, 'No');
+                                                IF coalesce(l_record.BRSSL_AUDIT_URL, '') LIKE '%://%' THEN
+                                                    t_temp := t_temp || ':
+                                <A href="' || l_record.BRSSL_AUDIT_URL || '" target="_blank">' || coalesce(l_record.BRSSL_AUDIT_DATE::text, 'Yes') || '</A>
+                                <BR><FONT style="font-size:8pt">(' || l_record.BRSSL_AUDIT_START || ' to ' || l_record.BRSSL_AUDIT_END || ')</FONT></TD>
+                            ';
+                        END IF;
+                        t_temp := t_temp ||
+                            '    <TD style="vertical-align:middle">' || coalesce(l_record.EVSSL_AUDIT_TYPE, 'No');
+                                                IF coalesce(l_record.EVSSL_AUDIT_URL, '') LIKE '%://%' THEN
+                                                    t_temp := t_temp || ':
+                                <A href="' || l_record.EVSSL_AUDIT_URL || '" target="_blank">' || coalesce(l_record.EVSSL_AUDIT_DATE::text, 'Yes') || '</A>
+                                <BR><FONT style="font-size:8pt">(' || l_record.EVSSL_AUDIT_START || ' to ' || l_record.EVSSL_AUDIT_END || ')</FONT></TD>
+                            ';
+                        END IF;
+                        t_temp := t_temp ||
+                            '    <TD style="vertical-align:middle">
+                            ';
+                        FOREACH t_temp3 IN ARRAY string_to_array(coalesce(l_record.CP_URL, ''), '; ') LOOP
+                            t_temp := t_temp ||
+                                '      <A href="' || t_temp3 || '" target="blank">CP</A>
+                                ';
+                        END LOOP;
+                        FOREACH t_temp3 IN ARRAY string_to_array(coalesce(l_record.CPS_URL, ''), '; ') LOOP
+                            t_temp := t_temp ||
+                                '      <A href="' || t_temp3 || '" target="blank">CPS</A>
+                                ';
+                        END LOOP;
+                        FOREACH t_temp3 IN ARRAY string_to_array(coalesce(l_record.CP_CPS_URL, ''), '; ') LOOP
+                            t_temp := t_temp ||
+                                '      <A href="' || t_temp3 || '" target="blank">CP/CPS</A>
+                                ';
+                        END LOOP;
+                        t_temp := t_temp ||
+                            '    </TD>
+                                <TD style="vertical-align:middle">';
+                        IF l_record.CCADB_RECORD_ID IS NOT NULL THEN
+                            t_temp := t_temp || '<A href="//ccadb.my.site.com/' || l_record.CCADB_RECORD_ID || '" target="_blank">' || l_record.CCADB_RECORD_ID || '</A>';
+                        ELSE
+                            t_temp := t_temp || '&nbsp;';
+                        END IF;
+                        t_temp := t_temp || '</TD>
+                            <TD style="vertical-align:middle">';
+                        IF l_record.INCLUDED_CERTIFICATE_ID IS NULL THEN
+                            t_temp := t_temp || coalesce(html_escape(l_record.INCLUDED_CERTIFICATE_OWNER), '&nbsp;');
+                        ELSE
+                            t_temp := t_temp || '<A href="/?id=' || l_record.INCLUDED_CERTIFICATE_ID::text || '">Root</A> CA: ' || coalesce(html_escape(l_record.INCLUDED_CERTIFICATE_OWNER), '&nbsp;') || '
+                                <BR>This CA: ' || coalesce(html_escape(coalesce(nullif(trim(l_record.SUBORDINATE_CA_OWNER), ''), l_record.INCLUDED_CERTIFICATE_OWNER)), '&nbsp;');
+                        END IF;
+                        t_temp := t_temp || '</TD>
+                            </TR>
+                            ';
+                        IF l_record.CERT_RECORD_TYPE = 'Root Certificate' THEN
+                            t_temp2 :=
+                                '  <TR>
+                                    <TH class="outer">Telemetry<BR>
+                                    <DIV class="small" style="padding-top:3px">Collected by
+                                        <A href="//mzl.la/2nvPgJs" target="_blank">Mozilla</A></DIV>
+                                    </TH>
+                                    <TD class="outer"><A href="mozilla-certvalidations?group=version&id=' || t_certificateID::text || '" target="_blank">CERT_VALIDATION_SUCCESS_BY_CA</A></TD>
+                                </TR>
+                                ';
+                        END IF;
+                    END LOOP;
+                    IF t_temp IS NOT NULL THEN
+                        t_temp := t_temp ||
+                            '</TABLE>';
+                    ELSE
+                        t_temp := 'Not Disclosed';
+                    END IF;
 
-			SELECT to_char(max(crl.LAST_CHECKED), 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
-					|| to_char(max(crl.LAST_CHECKED), 'HH24:MI:SS UTC') || '</FONT>'
-				INTO t_temp
-				FROM crl
-				WHERE crl.CA_ID = t_issuerCAID;
-			t_temp0 := t_temp0 || '</TD><TD>' || coalesce(t_temp, '');
-			IF t_count = 0 THEN
-				SELECT array_to_string(array_agg('<FONT color="#CC0000">' || html_escape(crl.ERROR_MESSAGE) || '</FONT> [' || html_escape(crl.DISTRIBUTION_POINT_URL || ']')), '<BR>')
-					INTO t_temp
-					FROM crl
-					WHERE crl.CA_ID = t_issuerCAID
-						AND crl.ERROR_MESSAGE IS NOT NULL;
-				IF t_temp IS NOT NULL THEN
-					t_temp0 := t_temp0 || '<BR><SPAN style="vertical-align:middle;font-size:70%">' || coalesce(t_temp, '') || '</SPAN>';
-				END IF;
-			END IF;
+                    t_output := t_output || t_temp || '
+                            </TD>
+                        </TR>
+                        ' || coalesce(t_temp2, '');
+                END IF;
 
-			SELECT '<SPAN style="color:#CC0000">Revoked [by ' || gr.ENTRY_TYPE || ']</SPAN>'
-				INTO t_temp
-				FROM google_revoked gr
-				WHERE gr.CERTIFICATE_ID = t_certificateID;
-			t_temp := coalesce(t_temp, 'Not Revoked');
+                SELECT '<SPAN style="color:#CC0000">Revoked'
+                        || CASE coalesce(cr.REASON_CODE, 0)
+                                WHEN 0 THEN ''
+                                WHEN 1 THEN ' (keyCompromise)'
+                                WHEN 2 THEN ' (cACompromise)'
+                                WHEN 3 THEN ' (affiliationChanged)'
+                                WHEN 4 THEN ' (superseded)'
+                                WHEN 5 THEN ' (cessationOfOperation)'
+                                WHEN 6 THEN ' (certificateHold)'
+                                WHEN 8 THEN ' (removeFromCRL)'
+                                WHEN 9 THEN ' (privilegeWithdrawn)'
+                                WHEN 10 THEN ' (aACompromise)'
+                                ELSE ' (UNKNOWN)'
+                            END
+                        || '</SPAN></TD><TD>'
+                        || to_char(cr.REVOCATION_DATE, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
+                        || to_char(cr.REVOCATION_DATE, 'HH24:MI:SS UTC') || '</FONT></TD><TD>'
+                        || to_char(cr.LAST_SEEN_CHECK_DATE, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
+                        || to_char(cr.LAST_SEEN_CHECK_DATE, 'HH24:MI:SS UTC') || '</FONT>'
+                    INTO t_temp0
+                    FROM crl_revoked cr
+                    WHERE cr.CA_ID = t_issuerCAID
+                        AND cr.SERIAL_NUMBER = t_serialNumber;
+                t_count := 1;
+                IF NOT FOUND THEN
+                    SELECT count(*)
+                        INTO t_count
+                        FROM crl
+                        WHERE crl.CA_ID = t_issuerCAID
+                            AND crl.ERROR_MESSAGE IS NULL
+                            AND crl.NEXT_UPDATE > now() AT TIME ZONE 'UTC';
+                    IF t_count > 0 THEN
+                        t_temp0 := 'Not Revoked';
+                    ELSE
+                        t_temp0 := '<SPAN style="color:#FF9400">Unknown</SPAN>';
+                    END IF;
+                    IF x509_notAfter(t_certificate) < now() AT TIME ZONE 'UTC' THEN
+                        t_temp0 := t_temp0 || ' (Expired)';
+                    END IF;
+                    t_temp0 := t_temp0 || '</TD><TD><SPAN style="color:#888888">n/a</SPAN></TD><TD><SPAN style="color:#888888">n/a</SPAN>';
+                END IF;
 
-			SELECT '<SPAN style="color:#CC0000">Revoked' ||
-					CASE length(mdc.DISALLOWED_HASH)
-						WHEN 16 THEN ' [by MD5(PublicKey)]'
-						WHEN 48 THEN ' [by SHA-384(TBSCertificate)]'
-					END || '</SPAN>'
-				INTO t_temp2
-				FROM microsoft_disallowedcert mdc
-				WHERE mdc.CERTIFICATE_ID = t_certificateID;
-			t_temp2 := coalesce(t_temp2, 'Not Revoked');
+                SELECT to_char(max(crl.LAST_CHECKED), 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
+                        || to_char(max(crl.LAST_CHECKED), 'HH24:MI:SS UTC') || '</FONT>'
+                    INTO t_temp
+                    FROM crl
+                    WHERE crl.CA_ID = t_issuerCAID;
+                t_temp0 := t_temp0 || '</TD><TD>' || coalesce(t_temp, '');
+                IF t_count = 0 THEN
+                    SELECT array_to_string(array_agg('<FONT color="#CC0000">' || html_escape(crl.ERROR_MESSAGE) || '</FONT> [' || html_escape(crl.DISTRIBUTION_POINT_URL || ']')), '<BR>')
+                        INTO t_temp
+                        FROM crl
+                        WHERE crl.CA_ID = t_issuerCAID
+                            AND crl.ERROR_MESSAGE IS NOT NULL;
+                    IF t_temp IS NOT NULL THEN
+                        t_temp0 := t_temp0 || '<BR><SPAN style="vertical-align:middle;font-size:70%">' || coalesce(t_temp, '') || '</SPAN>';
+                    END IF;
+                END IF;
 
-			SELECT '<SPAN style="color:#CC0000">Revoked [by ' || mo.ENTRY_TYPE::text || ']</SPAN></TD><TD>'
-					|| CASE WHEN mo.CREATED IS NOT NULL
-						THEN to_char(mo.CREATED, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
-							|| to_char(mo.CREATED, 'HH24:MI:SS UTC') || '</FONT>'
-						ELSE '<SPAN style="color:#888888">Unknown</SPAN>'
-						END
-				INTO t_temp3
-				FROM mozilla_onecrl mo
-				WHERE mo.CERTIFICATE_ID = t_certificateID;
-			t_temp3 := coalesce(t_temp3, 'Not Revoked</TD><TD><SPAN style="color:#888888">n/a</SPAN>');
+                SELECT '<SPAN style="color:#CC0000">Revoked [by ' || gr.ENTRY_TYPE || ']</SPAN>'
+                    INTO t_temp
+                    FROM google_revoked gr
+                    WHERE gr.CERTIFICATE_ID = t_certificateID;
+                t_temp := coalesce(t_temp, 'Not Revoked');
 
-			IF lower(',' || t_opt) LIKE '%,ocsp,%' THEN
-				SELECT coalesce(c2.CERTIFICATE, c1.CERTIFICATE)
-					INTO t_issuerCertificate
-					FROM ca_certificate cac1, certificate c1
-						LEFT JOIN LATERAL (
-							SELECT c2.CERTIFICATE
-								FROM ca_certificate cac2, certificate c2
-								WHERE cac2.CA_ID = c1.ISSUER_CA_ID
-									AND cac2.CERTIFICATE_ID = c2.ID
-									AND EXISTS (SELECT 1 FROM x509_extKeyUsages(c1.CERTIFICATE) WHERE x509_extKeyUsages = '1.3.6.1.4.1.11129.2.4.4')
-								LIMIT 1
-						) c2 ON TRUE
-					WHERE cac1.CA_ID = t_issuerCAID
-						AND cac1.CERTIFICATE_ID = c1.ID
-					LIMIT 1;
-				t_temp4 := ocsp_embedded(t_certificate, t_issuerCertificate);
-				IF t_temp4 LIKE 'Good%' THEN
-					t_temp4 := 'Good</TD>
+                SELECT '<SPAN style="color:#CC0000">Revoked' ||
+                        CASE length(mdc.DISALLOWED_HASH)
+                            WHEN 16 THEN ' [by MD5(PublicKey)]'
+                            WHEN 48 THEN ' [by SHA-384(TBSCertificate)]'
+                        END || '</SPAN>'
+                    INTO t_temp2
+                    FROM microsoft_disallowedcert mdc
+                    WHERE mdc.CERTIFICATE_ID = t_certificateID;
+                t_temp2 := coalesce(t_temp2, 'Not Revoked');
+
+                SELECT '<SPAN style="color:#CC0000">Revoked [by ' || mo.ENTRY_TYPE::text || ']</SPAN></TD><TD>'
+                        || CASE WHEN mo.CREATED IS NOT NULL
+                            THEN to_char(mo.CREATED, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
+                                || to_char(mo.CREATED, 'HH24:MI:SS UTC') || '</FONT>'
+                            ELSE '<SPAN style="color:#888888">Unknown</SPAN>'
+                            END
+                    INTO t_temp3
+                    FROM mozilla_onecrl mo
+                    WHERE mo.CERTIFICATE_ID = t_certificateID;
+                t_temp3 := coalesce(t_temp3, 'Not Revoked</TD><TD><SPAN style="color:#888888">n/a</SPAN>');
+
+                IF lower(',' || t_opt) LIKE '%,ocsp,%' THEN
+                    SELECT coalesce(c2.CERTIFICATE, c1.CERTIFICATE)
+                        INTO t_issuerCertificate
+                        FROM ca_certificate cac1, certificate c1
+                            LEFT JOIN LATERAL (
+                                SELECT c2.CERTIFICATE
+                                    FROM ca_certificate cac2, certificate c2
+                                    WHERE cac2.CA_ID = c1.ISSUER_CA_ID
+                                        AND cac2.CERTIFICATE_ID = c2.ID
+                                        AND EXISTS (SELECT 1 FROM x509_extKeyUsages(c1.CERTIFICATE) WHERE x509_extKeyUsages = '1.3.6.1.4.1.11129.2.4.4')
+                                    LIMIT 1
+                            ) c2 ON TRUE
+                        WHERE cac1.CA_ID = t_issuerCAID
+                            AND cac1.CERTIFICATE_ID = c1.ID
+                        LIMIT 1;
+                    t_temp4 := ocsp_embedded(t_certificate, t_issuerCertificate);
+                    IF t_temp4 LIKE 'Good%' THEN
+                        t_temp4 := 'Good</TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
+                    ELSIF t_temp4 LIKE 'Revoked%' THEN
+                        t_offset := position('|' in t_temp4);
+                        t_pos1 := position('|' in substring(t_temp4 from t_offset + 1)) + t_offset;
+                        t_temp5 := '<SPAN style="color:#CC0000">Revoked' || CASE coalesce(nullif(substring(t_temp4 from (t_pos1 + 1)), ''), '0')
+                                WHEN '0' THEN ''
+                                WHEN '1' THEN ' (keyCompromise)'
+                                WHEN '2' THEN ' (cACompromise)'
+                                WHEN '3' THEN ' (affiliationChanged)'
+                                WHEN '4' THEN ' (superseded)'
+                                WHEN '5' THEN ' (cessationOfOperation)'
+                                WHEN '6' THEN ' (certificateHold)'
+                                WHEN '8' THEN ' (removeFromCRL)'
+                                WHEN '9' THEN ' (privilegeWithdrawn)'
+                                WHEN '10' THEN ' (aACompromise)'
+                                ELSE ' (UNKNOWN)'
+                            END || '</SPAN>';
+                        t_temp4 := t_temp5 || '</TD>
+                            <TD>' || to_char(substring(t_temp4 from (t_offset + 1) for 19)::timestamp, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
+                                    || to_char(substring(t_temp4 from (t_offset + 1) for 19)::timestamp, 'HH24:MI:SS UTC') || '</FONT></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
+                    ELSIF t_temp4 LIKE 'Unknown%' THEN
+                        t_temp4 := '<SPAN style="color:#FF9400">Unknown</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
+                    ELSE	-- "No OCSP URL Available" or error.
+                        t_temp4 := t_temp4 || '</TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
+                    END IF;
+                    t_temp4 := t_temp4 || '
+                        <TD>' || to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
+                                || to_char(now() AT TIME ZONE 'UTC', 'HH24:MI:SS UTC') || '</FONT>';
+                ELSE
+                    t_temp4 := '<A href="?id=' || t_certificateID::text || '&opt=' || t_opt || 'ocsp">Check</A></TD>
+                        <TD><SPAN style="color:#888888">?</SPAN></TD>
                         <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
-				ELSIF t_temp4 LIKE 'Revoked%' THEN
-					t_offset := position('|' in t_temp4);
-					t_pos1 := position('|' in substring(t_temp4 from t_offset + 1)) + t_offset;
-					t_temp5 := '<SPAN style="color:#CC0000">Revoked' || CASE coalesce(nullif(substring(t_temp4 from (t_pos1 + 1)), ''), '0')
-                            WHEN '0' THEN ''
-                            WHEN '1' THEN ' (keyCompromise)'
-                            WHEN '2' THEN ' (cACompromise)'
-                            WHEN '3' THEN ' (affiliationChanged)'
-                            WHEN '4' THEN ' (superseded)'
-                            WHEN '5' THEN ' (cessationOfOperation)'
-                            WHEN '6' THEN ' (certificateHold)'
-                            WHEN '8' THEN ' (removeFromCRL)'
-                            WHEN '9' THEN ' (privilegeWithdrawn)'
-                            WHEN '10' THEN ' (aACompromise)'
-                            ELSE ' (UNKNOWN)'
-                        END || '</SPAN>';
-					t_temp4 := t_temp5 || '</TD>
-                        <TD>' || to_char(substring(t_temp4 from (t_offset + 1) for 19)::timestamp, 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
-                                || to_char(substring(t_temp4 from (t_offset + 1) for 19)::timestamp, 'HH24:MI:SS UTC') || '</FONT></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
-				ELSIF t_temp4 LIKE 'Unknown%' THEN
-					t_temp4 := '<SPAN style="color:#FF9400">Unknown</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
-				ELSE	-- "No OCSP URL Available" or error.
-					t_temp4 := t_temp4 || '</TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>';
-				END IF;
-				t_temp4 := t_temp4 || '
-                    <TD>' || to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD') || '&nbsp; <FONT class="small">'
-                            || to_char(now() AT TIME ZONE 'UTC', 'HH24:MI:SS UTC') || '</FONT>';
-			ELSE
-				t_temp4 := '<A href="?id=' || t_certificateID::text || '&opt=' || t_opt || 'ocsp">Check</A></TD>
-                    <TD><SPAN style="color:#888888">?</SPAN></TD>
-                    <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                    <TD><SPAN style="color:#888888">?</SPAN>';
-			END IF;
+                        <TD><SPAN style="color:#888888">?</SPAN>';
+                END IF;
 
-			t_output := t_output ||
+                t_output := t_output ||
+                    '  <TR>
+                        <TH class="outer">Revocation';
+                                IF lower(',' || t_opt) NOT LIKE '%,problemreporting,%' THEN
+                                    t_output := t_output || '<BR><BR>
+                        <DIV class="small" style="padding-top:3px"><A href="?id=' || t_certificateID::text || '&opt=problemreporting">Report a problem</A> with<BR>this certificate to the CA</DIV>';
+                                END IF;
+                                t_output := t_output || '</TH>
+                        <TD class="outer">
+                        <TABLE class="options" style="margin-left:0px">
+                            <TR>
+                            <TH>Mechanism</TH>
+                            <TH>Provider</TH>
+                            <TH>Status</TH>
+                            <TH>Revocation Date</TH>
+                            <TH>Last Observed in CRL</TH>
+                            <TH>Last Checked <SPAN style="color:#CC0000;vertical-align:middle;font-size:70%;font-weight:normal">(Error)</SPAN></TH>
+                            </TR>
+                            <TR>
+                            <TD>OCSP</TD>
+                            <TD>The CA</TD>
+                            <TD>' || t_temp4 || '</TD>
+                            </TR>
+                            <TR>
+                            <TD>CRL</TD>
+                            <TD>The CA</TD>
+                            <TD>' || t_temp0 || '</TD>
+                            </TR>
+                            <TR>
+                            <TD>CRLSet/Blocklist</TD>
+                            <TD>Google</TD>
+                            <TD>' || t_temp || '</TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            </TR>
+                            <TR>
+                            <TD>disallowedcert.stl</TD>
+                            <TD>Microsoft</TD>
+                            <TD>' || t_temp2 || '</TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            </TR>
+                            <TR>
+                            <TD><A href="/mozilla-onecrl" target="_blank">OneCRL</A></TD>
+                            <TD>Mozilla</TD>
+                            <TD>' || t_temp3 || '</TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                            </TR>
+                        </TABLE>
+                        </TD>
+                    </TR>
+                    ';
+                IF lower(',' || t_opt) LIKE '%,problemreporting,%' THEN
+                    SELECT cco.PROBLEM_REPORTING
+                        INTO t_temp3
+                        FROM ca_certificate cac, ccadb_certificate cc, ccadb_caowner cco, ca_trust_purpose ctp, certificate c
+                        WHERE cac.CA_ID = t_issuerCAID
+                            AND cac.CERTIFICATE_ID = cc.CERTIFICATE_ID
+                            AND cc.INCLUDED_CERTIFICATE_OWNER = cco.CA_OWNER_NAME
+                            AND cac.CA_ID = ctp.CA_ID
+                            AND cac.CERTIFICATE_ID = c.ID
+                        GROUP BY cco.PROBLEM_REPORTING
+                        ORDER BY min(ctp.SHORTEST_CHAIN), max(x509_notAfter(c.CERTIFICATE)) DESC
+                        LIMIT 1;
+
+                    IF trim(coalesce(t_temp3, '')) = '' THEN
+                        t_temp3 := 'Unknown';
+                    END IF;
+                    t_output := t_output ||
+                        '  <TR>
+                            <TH class="outer">Problem Reporting<BR>
+                            <DIV class="small" style="padding-top:3px">Mechanism(s) disclosed<BR>via the
+                                <A href="//ccadb.my.salesforce-sites.com/mozilla/CAInformationReport" target="_blank">CCADB</A></DIV>
+                            </TH>
+                            <TD class="outer">' || replace(html_escape(t_temp3), '. ', '.<BR>') || '</TD>
+                        </TR>
+                        ';
+                END IF;
+            END IF;
+
+            t_output := t_output ||
                 '  <TR>
-                    <TH class="outer">Revocation';
-                            IF lower(',' || t_opt) NOT LIKE '%,problemreporting,%' THEN
-                                t_output := t_output || '<BR><BR>
-                    <DIV class="small" style="padding-top:3px"><A href="?id=' || t_certificateID::text || '&opt=problemreporting">Report a problem</A> with<BR>this certificate to the CA</DIV>';
-                            END IF;
-                            t_output := t_output || '</TH>
+                    <TH class="outer">Certificate Fingerprints</TH>
                     <TD class="outer">
                     <TABLE class="options" style="margin-left:0px">
                         <TR>
-                        <TH>Mechanism</TH>
-                        <TH>Provider</TH>
-                        <TH>Status</TH>
-                        <TH>Revocation Date</TH>
-                        <TH>Last Observed in CRL</TH>
-                        <TH>Last Checked <SPAN style="color:#CC0000;vertical-align:middle;font-size:70%;font-weight:normal">(Error)</SPAN></TH>
-                        </TR>
-                        <TR>
-                        <TD>OCSP</TD>
-                        <TD>The CA</TD>
-                        <TD>' || t_temp4 || '</TD>
-                        </TR>
-                        <TR>
-                        <TD>CRL</TD>
-                        <TD>The CA</TD>
-                        <TD>' || t_temp0 || '</TD>
-                        </TR>
-                        <TR>
-                        <TD>CRLSet/Blocklist</TD>
-                        <TD>Google</TD>
-                        <TD>' || t_temp || '</TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        </TR>
-                        <TR>
-                        <TD>disallowedcert.stl</TD>
-                        <TD>Microsoft</TD>
-                        <TD>' || t_temp2 || '</TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        </TR>
-                        <TR>
-                        <TD><A href="/mozilla-onecrl" target="_blank">OneCRL</A></TD>
-                        <TD>Mozilla</TD>
-                        <TD>' || t_temp3 || '</TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
-                        <TD><SPAN style="color:#888888">n/a</SPAN></TD>
+                        <TH>SHA-256</TH>
+                        <TD><A href="//search.censys.io/certificates/' || coalesce(lower(encode(t_certificateSHA256, 'hex')), '') || '">'
+                                        || coalesce(upper(encode(t_certificateSHA256, 'hex')), '<I>Not found</I>') || '</A></TD>
+                        <TD style="width:20px;border:none">&nbsp;</TD>
+                        <TH>SHA-1</TH>
+                        <TD>' || coalesce(upper(encode(t_certificateSHA1, 'hex')), '<I>Not found</I>') || '</TD>
                         </TR>
                     </TABLE>
                     </TD>
                 </TR>
                 ';
-			IF lower(',' || t_opt) LIKE '%,problemreporting,%' THEN
-				SELECT cco.PROBLEM_REPORTING
-					INTO t_temp3
-					FROM ca_certificate cac, ccadb_certificate cc, ccadb_caowner cco, ca_trust_purpose ctp, certificate c
-					WHERE cac.CA_ID = t_issuerCAID
-						AND cac.CERTIFICATE_ID = cc.CERTIFICATE_ID
-						AND cc.INCLUDED_CERTIFICATE_OWNER = cco.CA_OWNER_NAME
-						AND cac.CA_ID = ctp.CA_ID
-						AND cac.CERTIFICATE_ID = c.ID
-					GROUP BY cco.PROBLEM_REPORTING
-					ORDER BY min(ctp.SHORTEST_CHAIN), max(x509_notAfter(c.CERTIFICATE)) DESC
-					LIMIT 1;
 
-				IF trim(coalesce(t_temp3, '')) = '' THEN
-					t_temp3 := 'Unknown';
-				END IF;
-				t_output := t_output ||
+            t_showPkimetal := ((',' || t_opt) LIKE '%,pkimetal,%')
+                            OR ((',' || t_opt) LIKE '%,cablint,%')
+                            OR ((',' || t_opt) LIKE '%,x509lint,%')
+                            OR ((',' || t_opt) LIKE '%,zlint,%');
+            IF t_showPkimetal THEN
+                t_output := t_output ||
                     '  <TR>
-                        <TH class="outer">Problem Reporting<BR>
-                        <DIV class="small" style="padding-top:3px">Mechanism(s) disclosed<BR>via the
-                            <A href="//ccadb.my.salesforce-sites.com/mozilla/CAInformationReport" target="_blank">CCADB</A></DIV>
+                        <TH class="outer">Linter Findings<BR>
+                        <SPAN class="small" style="padding-top:3px">Powered by <A href="//github.com/pkimetal/pkimetal" target="_blank">pkimetal</A></SPAN>
+                        <SPAN class="small" style="padding-top:3px" id="pkimetalVersion"></SPAN>
+                        <SCRIPT type-"text/javascript">
+                            var xhttp = new XMLHttpRequest();
+                            xhttp.onreadystatechange = function() {
+                            if (this.readyState == 4 && this.status == 200) {
+                                var findings = JSON.parse(xhttp.responseText)
+                                var dummyFinding = Object.assign({}, findings[0])
+                                dummyFinding.Linter = ""
+                                findings.push(dummyFinding)
+                                var linter = "pkimetal"
+                                var output = ""
+                                var temp = ""
+                                var version = ""
+                                if (findings.length == 2 && findings[0].Linter == "pkimetal" && findings[0].Severity == "fatal") {
+                                output = "<B>pkimetal</B>:<BR><SPAN class=\"fatal\">&nbsp; &nbsp;FATAL: " + findings[0].Finding + "&nbsp;</SPAN>"
+                                }
+                                for (i in findings) {
+                                if (findings[i].Linter != linter) {
+                                    if (version != "") {
+                                    output += "<B>" + linter + "</B> " + version + ":<BR>" + temp
+                                    }
+                                    temp = ""
+                                    linter = findings[i].Linter
+                                    version = ""
+                                }
+                                var temp2 = ""
+                                switch (findings[i].Severity) {
+                                    case "meta":
+                                    m = findings[i].Finding.split(";")
+                                    for (j in m) {
+                                        m2 = m[j].replace("Version: ", "")
+                                        if (m[j] != m2) {
+                                        if (linter == "pkimetal") {
+                                            document.getElementById("pkimetalVersion").innerHTML = m2
+                                        } else {
+                                            version = m2
+                                        }
+                                        break
+                                        }
+                                    }
+                                    break;
+                                    case "info": temp2 += "<SPAN>&nbsp; &nbsp; INFO:"; break
+                                    case "notice": temp2 += "<SPAN class=\"notice\">&nbsp; NOTICE:"; break
+                                    case "warning": temp2 += "<SPAN class=\"warning\">&nbsp;WARNING:"; break
+                                    case "error": temp2 += "<SPAN class=\"error\">&nbsp; &nbsp;ERROR:"; break
+                                    case "bug": temp2 += "<SPAN>&nbsp; &nbsp; &nbsp;BUG:"; break
+                                    case "fatal": temp2 += "<SPAN class=\"fatal\">&nbsp; &nbsp;FATAL:"; break
+                                }
+                                if (findings[i].Severity != "meta") {
+                                    var hasCodeOrFinding = false
+                                    if (findings[i].Code != undefined) {
+                                    temp2 += " " + findings[i].Code
+                                    hasCodeOrFinding = true
+                                    }
+                                    if (findings[i].Field != undefined) {
+                                    temp2 += " (" + findings[i].Field + ")"
+                                    hasCodeOrFinding = true
+                                    }
+                                    if (hasCodeOrFinding) {
+                                    temp2 += " -"
+                                    }
+                                    temp += temp2 + " " + findings[i].Finding + "&nbsp;</SPAN><BR>"
+                                }
+                                }
+                                document.getElementById("linterFindings").innerHTML = output
+                            }
+                            };
+                            xhttp.open("POST", "https://pkimet.al/lintcert", true);
+                            xhttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+                            xhttp.send("severity=meta&format=json&b64cert=' || urlEncode(replace(encode(t_certificate, 'base64'), chr(10), '')) || '");
+                        </SCRIPT>
                         </TH>
-                        <TD class="outer">' || replace(html_escape(t_temp3), '. ', '.<BR>') || '</TD>
+                        <TD class="text">
+                        <DIV id="linterFindings"><I>Loading...</I></DIV>
+                        </TD>
                     </TR>
                     ';
-			END IF;
-		END IF;
+            END IF;
 
-		t_output := t_output ||
-            '  <TR>
-                <TH class="outer">Certificate Fingerprints</TH>
-                <TD class="outer">
-                <TABLE class="options" style="margin-left:0px">
-                    <TR>
-                    <TH>SHA-256</TH>
-                    <TD><A href="//search.censys.io/certificates/' || coalesce(lower(encode(t_certificateSHA256, 'hex')), '') || '">'
-                                    || coalesce(upper(encode(t_certificateSHA256, 'hex')), '<I>Not found</I>') || '</A></TD>
-                    <TD style="width:20px;border:none">&nbsp;</TD>
-                    <TH>SHA-1</TH>
-                    <TD>' || coalesce(upper(encode(t_certificateSHA1, 'hex')), '<I>Not found</I>') || '</TD>
+            SELECT '<SPAN class="error">Debian OpenSSL RNG vulnerability</SPAN> <SPAN class="small"><A href="//en.wikipedia.org/wiki/Random_number_generator_attack#Debian_OpenSSL" target="_blank">Details</A></SPAN>'
+                INTO t_publicKeyProblems
+                FROM debian_weak_key dwk
+                WHERE dwk.SHA1_MODULUS = digest('Modulus=' || upper(encode(t_rsaModulus, 'hex')) || chr(10), 'sha1');
+            IF t_hasROCAFingerprint THEN
+                IF t_publicKeyProblems IS NOT NULL THEN
+                    t_publicKeyProblems := t_publicKeyProblems || '<BR>';
+                END IF;
+                t_publicKeyProblems := coalesce(t_publicKeyProblems, '') || '<SPAN class="error">ROCA vulnerability</SPAN> <SPAN class="small"><A href="//en.wikipedia.org/wiki/ROCA_vulnerability" target="_blank">Details</A></SPAN>';
+            END IF;
+            IF t_hasClosePrimes THEN
+                IF t_publicKeyProblems IS NOT NULL THEN
+                    t_publicKeyProblems := t_publicKeyProblems || '<BR>';
+                END IF;
+                t_publicKeyProblems := coalesce(t_publicKeyProblems, '') || '<SPAN class="error">Close Primes vulnerability</SPAN> <SPAN class="small"><A href="//crypto.stackexchange.com/questions/5262/rsa-and-prime-difference" target="_blank">Details</A></SPAN>';
+            END IF;
+
+            IF t_publicKeyProblems IS NOT NULL THEN
+                t_output := t_output ||
+                    '  <TR>
+                        <TH class="outer">Public Key Problems</TH>
+                        <TD class="text">' || t_publicKeyProblems || '</TD>
                     </TR>
-                </TABLE>
-                </TD>
-            </TR>
-            ';
+                    ';
+            END IF;
 
-		t_showPkimetal := ((',' || t_opt) LIKE '%,pkimetal,%')
-						OR ((',' || t_opt) LIKE '%,cablint,%')
-						OR ((',' || t_opt) LIKE '%,x509lint,%')
-						OR ((',' || t_opt) LIKE '%,zlint,%');
-		IF t_showPkimetal THEN
-			t_output := t_output ||
+            t_output := t_output ||
                 '  <TR>
-                    <TH class="outer">Linter Findings<BR>
-                    <SPAN class="small" style="padding-top:3px">Powered by <A href="//github.com/pkimetal/pkimetal" target="_blank">pkimetal</A></SPAN>
-                    <SPAN class="small" style="padding-top:3px" id="pkimetalVersion"></SPAN>
-                    <SCRIPT type-"text/javascript">
-                        var xhttp = new XMLHttpRequest();
-                        xhttp.onreadystatechange = function() {
-                        if (this.readyState == 4 && this.status == 200) {
-                            var findings = JSON.parse(xhttp.responseText)
-                            var dummyFinding = Object.assign({}, findings[0])
-                            dummyFinding.Linter = ""
-                            findings.push(dummyFinding)
-                            var linter = "pkimetal"
-                            var output = ""
-                            var temp = ""
-                            var version = ""
-                            if (findings.length == 2 && findings[0].Linter == "pkimetal" && findings[0].Severity == "fatal") {
-                            output = "<B>pkimetal</B>:<BR><SPAN class=\"fatal\">&nbsp; &nbsp;FATAL: " + findings[0].Finding + "&nbsp;</SPAN>"
-                            }
-                            for (i in findings) {
-                            if (findings[i].Linter != linter) {
-                                if (version != "") {
-                                output += "<B>" + linter + "</B> " + version + ":<BR>" + temp
-                                }
-                                temp = ""
-                                linter = findings[i].Linter
-                                version = ""
-                            }
-                            var temp2 = ""
-                            switch (findings[i].Severity) {
-                                case "meta":
-                                m = findings[i].Finding.split(";")
-                                for (j in m) {
-                                    m2 = m[j].replace("Version: ", "")
-                                    if (m[j] != m2) {
-                                    if (linter == "pkimetal") {
-                                        document.getElementById("pkimetalVersion").innerHTML = m2
-                                    } else {
-                                        version = m2
-                                    }
-                                    break
-                                    }
-                                }
-                                break;
-                                case "info": temp2 += "<SPAN>&nbsp; &nbsp; INFO:"; break
-                                case "notice": temp2 += "<SPAN class=\"notice\">&nbsp; NOTICE:"; break
-                                case "warning": temp2 += "<SPAN class=\"warning\">&nbsp;WARNING:"; break
-                                case "error": temp2 += "<SPAN class=\"error\">&nbsp; &nbsp;ERROR:"; break
-                                case "bug": temp2 += "<SPAN>&nbsp; &nbsp; &nbsp;BUG:"; break
-                                case "fatal": temp2 += "<SPAN class=\"fatal\">&nbsp; &nbsp;FATAL:"; break
-                            }
-                            if (findings[i].Severity != "meta") {
-                                var hasCodeOrFinding = false
-                                if (findings[i].Code != undefined) {
-                                temp2 += " " + findings[i].Code
-                                hasCodeOrFinding = true
-                                }
-                                if (findings[i].Field != undefined) {
-                                temp2 += " (" + findings[i].Field + ")"
-                                hasCodeOrFinding = true
-                                }
-                                if (hasCodeOrFinding) {
-                                temp2 += " -"
-                                }
-                                temp += temp2 + " " + findings[i].Finding + "&nbsp;</SPAN><BR>"
-                            }
-                            }
-                            document.getElementById("linterFindings").innerHTML = output
-                        }
-                        };
-                        xhttp.open("POST", "https://pkimet.al/lintcert", true);
-                        xhttp.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-                        xhttp.send("severity=meta&format=json&b64cert=' || urlEncode(replace(encode(t_certificate, 'base64'), chr(10), '')) || '");
-                    </SCRIPT>
+                ';
+
+            IF t_type = 'Certificate ASN.1' THEN
+                t_action := 'asn1';
+                t_output := t_output ||
+                    '    <TH class="outer" style="white-space:nowrap">
+                        | ASN.1 |
+                        <A href="?id=' || t_certificateID::text || '">Certificate</A> |
+                        <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
+                        | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
+                        <A href="?pv=' || t_certificateID::text || '">pv</A> |
+                        <BR><BR><SPAN class="small">Powered by <A href="//lapo.it/asn1js/" target="_blank">asn1js</A><BR>
+                    ';
+            ELSIF t_type = 'Certification Graph' THEN
+                t_action := 'graph';
+                t_output := t_output ||
+                    '    <TH class="outer" style="white-space:nowrap">
+                        | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
+                        <A href="?id=' || t_certificateID::text || '">Certificate</A> |
+                        Graph |<BR>
+                        | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
+                        <A href="?pv=' || t_certificateID::text || '">pv</A> |
+                        <BR><BR><SPAN class="small">Powered by <A href="//js.cytoscape.org/" target="_blank">Cytoscape.js</A> <A href="//github.com/cytoscape/cytoscape.js-dagre">and</A> <A href="//github.com/dagrejs/dagre">Dagre</A><BR>
+                    ';
+            ELSIF t_type = 'PKI Hierarchy' THEN
+                t_action := 'h';
+                t_output := t_output ||
+                    '    <TH class="outer" style="white-space:nowrap">
+                        | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
+                        <A href="?id=' || t_certificateID::text || '">Certificate</A> |
+                        <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
+                        | Hierarchy |
+                        <A href="?pv=' || t_certificateID::text || '">pv</A> |
+                        <SPAN class="small"><BR>
+                    ';
+            ELSIF t_type = 'pv-certificate-viewer' THEN
+                t_action := 'pv';
+                t_output := t_output ||
+                    '    <TH class="outer" style="white-space:nowrap">
+                        | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
+                        <A href="?id=' || t_certificateID::text || '">Certificate</A> |
+                        <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
+                        | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
+                        pv
+                        <BR><BR><SPAN class="small">Powered by <A href="//github.com/PeculiarVentures/pv-certificates-viewer" target="_blank">pv-certificates-viewer</A> |<BR>
+                    ';
+            ELSE
+                t_action := 'id';
+                t_output := t_output ||
+                    '    <TH class="outer" style="white-space:nowrap">
+                        | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
+                        Certificate |
+                        <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
+                        | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
+                        <A href="?pv=' || t_certificateID::text || '">pv</A> |
+                        <SPAN class="small"><BR>
+                    ';
+            END IF;
+
+            IF t_showMetadata THEN
+                t_output := t_output ||
+                    '      <BR><BR><A href="?' || t_action || '=' || t_certificateID::text || '&opt=' || t_opt || 'nometadata">Hide metadata</A>
+                    ';
+            ELSE
+                IF t_opt = 'nometadata,' THEN
+                    t_temp := '';
+                ELSE
+                    t_temp := '&opt=' || rtrim(replace(t_opt, 'nometadata,', ''), ',');
+                END IF;
+                t_output := t_output ||
+                    '      <BR><BR><A href="?' || t_action || '=' || t_certificateID::text || t_temp || '">Show metadata</A>
+                    ';
+            END IF;
+            IF NOT t_showPkimetal THEN
+                t_output := t_output ||
+                    '      <BR><BR><A href="?' || t_action || '=' || t_certificateID::text || '&opt=' || t_opt || 'pkimetal">Run linters using pkimetal</A>
+                    ';
+            END IF;
+            t_output := t_output ||
+                '      <BR><BR><BR>Download Certificate: <A href="?d=' || t_certificateID::text || '">PEM</A>
+                    </SPAN>
                     </TH>
-                    <TD class="text">
-                    <DIV id="linterFindings"><I>Loading...</I></DIV>
-                    </TD>
-                </TR>
                 ';
-		END IF;
 
-		SELECT '<SPAN class="error">Debian OpenSSL RNG vulnerability</SPAN> <SPAN class="small"><A href="//en.wikipedia.org/wiki/Random_number_generator_attack#Debian_OpenSSL" target="_blank">Details</A></SPAN>'
-			INTO t_publicKeyProblems
-			FROM debian_weak_key dwk
-			WHERE dwk.SHA1_MODULUS = digest('Modulus=' || upper(encode(t_rsaModulus, 'hex')) || chr(10), 'sha1');
-		IF t_hasROCAFingerprint THEN
-			IF t_publicKeyProblems IS NOT NULL THEN
-				t_publicKeyProblems := t_publicKeyProblems || '<BR>';
-			END IF;
-			t_publicKeyProblems := coalesce(t_publicKeyProblems, '') || '<SPAN class="error">ROCA vulnerability</SPAN> <SPAN class="small"><A href="//en.wikipedia.org/wiki/ROCA_vulnerability" target="_blank">Details</A></SPAN>';
-		END IF;
-		IF t_hasClosePrimes THEN
-			IF t_publicKeyProblems IS NOT NULL THEN
-				t_publicKeyProblems := t_publicKeyProblems || '<BR>';
-			END IF;
-			t_publicKeyProblems := coalesce(t_publicKeyProblems, '') || '<SPAN class="error">Close Primes vulnerability</SPAN> <SPAN class="small"><A href="//crypto.stackexchange.com/questions/5262/rsa-and-prime-difference" target="_blank">Details</A></SPAN>';
-		END IF;
+            IF t_type = 'Certificate ASN.1' THEN
+                t_output := t_output ||
+                    '    <TD class="text" style="width:100%">
+                        <DIV id="dump" style="position:absolute;right:20px;"></DIV>
+                        <DIV id="tree"></DIV>
+                        <SCRIPT type="text/javascript" src="/asn1js/base64.js"></SCRIPT>
+                        <SCRIPT type="text/javascript" src="/asn1js/oids.js"></SCRIPT>
+                        <SCRIPT type="text/javascript" src="/asn1js/int10.js"></SCRIPT>
+                        <SCRIPT type="text/javascript" src="/asn1js/asn1.js"></SCRIPT>
+                        <SCRIPT type="text/javascript" src="/asn1js/dom.js"></SCRIPT>
+                        <SCRIPT type="text/javascript">
+                            var tree = document.getElementById(''tree'');
+                            var dump = document.getElementById(''dump'');
+                            tree.innerHTML = '''';
+                            dump.innerHTML = '''';
+                            try {
+                            var asn1 = ASN1.decode(Base64.unarmor('''
+                                || translate(encode(t_certificate, 'base64'), chr(10), '')
+                                || '''));
+                            tree.appendChild(asn1.toDOM());
+                            dump.appendChild(asn1.toHexDOM());
+                            } catch (e) {
+                            if (''textContent'' in tree)
+                                tree.textContent = e;
+                            else
+                                tree.innerText = e;
+                            }
+                        </SCRIPT>
+                    ';
+            ELSIF t_type = 'Certification Graph' THEN
+                t_output := t_output ||
+                    '    <TD style="width:100%">
+                        <DIV id="spinner" style="margin:0 auto;width:400px;padding-top:70px;"><IMG src="/spinner.gif" style="display:inline-block" /><SPAN style="font-size:20px;display:inline-block;position:relative;top:-52px;left:30px">Loading...</SPAN></DIV>
+                        <BR><DIV id="cy"></DIV>
+                        <SCRIPT type="text/javascript">
+                    $.ajax({
+                    dataType: "json",
+                    url: "?nodes=' || t_certificateID::text || '",
+                    success: function(data) {
+                        var cy = window.cy = cytoscape({
+                        container: $("#cy"),
 
-		IF t_publicKeyProblems IS NOT NULL THEN
-			t_output := t_output ||
-                '  <TR>
-                    <TH class="outer">Public Key Problems</TH>
-                    <TD class="text">' || t_publicKeyProblems || '</TD>
-                </TR>
-                ';
-		END IF;
+                        boxSelectionEnabled: true,
+                        autounselectify: true,
+                        userPanningEnabled: true,
+                        userZoomingEnabled: true,
+                        fit: true,
 
-		t_output := t_output ||
-            '  <TR>
-            ';
-
-		IF t_type = 'Certificate ASN.1' THEN
-			t_action := 'asn1';
-			t_output := t_output ||
-                '    <TH class="outer" style="white-space:nowrap">
-                    | ASN.1 |
-                    <A href="?id=' || t_certificateID::text || '">Certificate</A> |
-                    <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
-                    | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
-                    <A href="?pv=' || t_certificateID::text || '">pv</A> |
-                    <BR><BR><SPAN class="small">Powered by <A href="//lapo.it/asn1js/" target="_blank">asn1js</A><BR>
-                ';
-		ELSIF t_type = 'Certification Graph' THEN
-			t_action := 'graph';
-			t_output := t_output ||
-                '    <TH class="outer" style="white-space:nowrap">
-                    | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
-                    <A href="?id=' || t_certificateID::text || '">Certificate</A> |
-                    Graph |<BR>
-                    | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
-                    <A href="?pv=' || t_certificateID::text || '">pv</A> |
-                    <BR><BR><SPAN class="small">Powered by <A href="//js.cytoscape.org/" target="_blank">Cytoscape.js</A> <A href="//github.com/cytoscape/cytoscape.js-dagre">and</A> <A href="//github.com/dagrejs/dagre">Dagre</A><BR>
-                ';
-		ELSIF t_type = 'PKI Hierarchy' THEN
-			t_action := 'h';
-			t_output := t_output ||
-                '    <TH class="outer" style="white-space:nowrap">
-                    | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
-                    <A href="?id=' || t_certificateID::text || '">Certificate</A> |
-                    <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
-                    | Hierarchy |
-                    <A href="?pv=' || t_certificateID::text || '">pv</A> |
-                    <SPAN class="small"><BR>
-                ';
-		ELSIF t_type = 'pv-certificate-viewer' THEN
-			t_action := 'pv';
-			t_output := t_output ||
-                '    <TH class="outer" style="white-space:nowrap">
-                    | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
-                    <A href="?id=' || t_certificateID::text || '">Certificate</A> |
-                    <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
-                    | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
-                    pv
-                    <BR><BR><SPAN class="small">Powered by <A href="//github.com/PeculiarVentures/pv-certificates-viewer" target="_blank">pv-certificates-viewer</A> |<BR>
-                ';
-		ELSE
-			t_action := 'id';
-			t_output := t_output ||
-                '    <TH class="outer" style="white-space:nowrap">
-                    | <A href="?asn1=' || t_certificateID::text || '">ASN.1</A> |
-                    Certificate |
-                    <A href="?graph=' || t_certificateID::text || '&opt=nometadata">Graph</A> |<BR>
-                    | <A href="?h=' || t_certificateID::text || '&opt=nometadata">Hierarchy</A> |
-                    <A href="?pv=' || t_certificateID::text || '">pv</A> |
-                    <SPAN class="small"><BR>
-                ';
-		END IF;
-
-		IF t_showMetadata THEN
-			t_output := t_output ||
-                '      <BR><BR><A href="?' || t_action || '=' || t_certificateID::text || '&opt=' || t_opt || 'nometadata">Hide metadata</A>
-                ';
-		ELSE
-			IF t_opt = 'nometadata,' THEN
-				t_temp := '';
-			ELSE
-				t_temp := '&opt=' || rtrim(replace(t_opt, 'nometadata,', ''), ',');
-			END IF;
-			t_output := t_output ||
-                '      <BR><BR><A href="?' || t_action || '=' || t_certificateID::text || t_temp || '">Show metadata</A>
-                ';
-		END IF;
-		IF NOT t_showPkimetal THEN
-			t_output := t_output ||
-                '      <BR><BR><A href="?' || t_action || '=' || t_certificateID::text || '&opt=' || t_opt || 'pkimetal">Run linters using pkimetal</A>
-                ';
-		END IF;
-		t_output := t_output ||
-            '      <BR><BR><BR>Download Certificate: <A href="?d=' || t_certificateID::text || '">PEM</A>
-                </SPAN>
-                </TH>
-            ';
-
-		IF t_type = 'Certificate ASN.1' THEN
-			t_output := t_output ||
-                '    <TD class="text" style="width:100%">
-                    <DIV id="dump" style="position:absolute;right:20px;"></DIV>
-                    <DIV id="tree"></DIV>
-                    <SCRIPT type="text/javascript" src="/asn1js/base64.js"></SCRIPT>
-                    <SCRIPT type="text/javascript" src="/asn1js/oids.js"></SCRIPT>
-                    <SCRIPT type="text/javascript" src="/asn1js/int10.js"></SCRIPT>
-                    <SCRIPT type="text/javascript" src="/asn1js/asn1.js"></SCRIPT>
-                    <SCRIPT type="text/javascript" src="/asn1js/dom.js"></SCRIPT>
-                    <SCRIPT type="text/javascript">
-                        var tree = document.getElementById(''tree'');
-                        var dump = document.getElementById(''dump'');
-                        tree.innerHTML = '''';
-                        dump.innerHTML = '''';
-                        try {
-                        var asn1 = ASN1.decode(Base64.unarmor('''
-                            || translate(encode(t_certificate, 'base64'), chr(10), '')
-                            || '''));
-                        tree.appendChild(asn1.toDOM());
-                        dump.appendChild(asn1.toHexDOM());
-                        } catch (e) {
-                        if (''textContent'' in tree)
-                            tree.textContent = e;
-                        else
-                            tree.innerText = e;
+                        layout: {
+                            name: "dagre",
+                            rankDir: "TB",
+                            stop: function() { document.getElementById("spinner").style.display = "none"; }
+                        },
+                        style: cytoscape.stylesheet()
+                            .selector("node").css({
+                            "content": "",
+                            "background-color": "data(color)",
+                            "color": "#000",
+                            "shape": "data(type)",
+                            "label": "data(label)",
+                            "text-halign": "center",
+                            "text-valign": "center",
+                            "text-wrap": "wrap",
+                            "text-max-width": "50px",
+                            "font-family": "Roboto",
+                            "font-weight": "400",
+                            "font-size": "8pt",
+                            "width": "50px",
+                            "height": "50px"
+                            })
+                            .selector(":selected").css({
+                            "border-width": 3,
+                            "border-color": "#333"
+                            })
+                            .selector("edge").css({
+                            "curve-style": "bezier",
+                            "color": "data(color)",
+                            "line-color": "data(linecolor)",
+                            "target-arrow-color": "data(linecolor)",
+                            "target-arrow-shape": "triangle",
+                            "arrow-scale": 0.75,
+                            "label": "data(label)",
+                            "width": 1,
+                            "edge-text-rotation": "autorotate",
+                            "font-size": "8pt"
+                            }),
+                        elements: data["elements"],
+                        });
+                        cy.on("tap", "edge", function(){
+                        if (this.data("href")) {
+                            try { // your browser may block popups
+                            window.open( this.data("href") );
+                            } catch(e){ // fall back on url change
+                            window.location.href = this.data("href");
+                            }
                         }
-                    </SCRIPT>
-                ';
-		ELSIF t_type = 'Certification Graph' THEN
-			t_output := t_output ||
-                '    <TD style="width:100%">
-                    <DIV id="spinner" style="margin:0 auto;width:400px;padding-top:70px;"><IMG src="/spinner.gif" style="display:inline-block" /><SPAN style="font-size:20px;display:inline-block;position:relative;top:-52px;left:30px">Loading...</SPAN></DIV>
-                    <BR><DIV id="cy"></DIV>
-                    <SCRIPT type="text/javascript">
-                $.ajax({
-                dataType: "json",
-                url: "?nodes=' || t_certificateID::text || '",
-                success: function(data) {
-                    var cy = window.cy = cytoscape({
-                    container: $("#cy"),
-
-                    boxSelectionEnabled: true,
-                    autounselectify: true,
-                    userPanningEnabled: true,
-                    userZoomingEnabled: true,
-                    fit: true,
-
-                    layout: {
-                        name: "dagre",
-                        rankDir: "TB",
-                        stop: function() { document.getElementById("spinner").style.display = "none"; }
+                        }); 
+                        cy.on("tap", "node", function(){
+                        if (this.data("href")) {
+                            try { // your browser may block popups
+                            window.open( this.data("href") );
+                            } catch(e){ // fall back on url change
+                            window.location.href = this.data("href");
+                            }
+                        }
+                        }); 
                     },
-                    style: cytoscape.stylesheet()
-                        .selector("node").css({
-                        "content": "",
-                        "background-color": "data(color)",
-                        "color": "#000",
-                        "shape": "data(type)",
-                        "label": "data(label)",
-                        "text-halign": "center",
-                        "text-valign": "center",
-                        "text-wrap": "wrap",
-                        "text-max-width": "50px",
-                        "font-family": "Roboto",
-                        "font-weight": "400",
-                        "font-size": "8pt",
-                        "width": "50px",
-                        "height": "50px"
-                        })
-                        .selector(":selected").css({
-                        "border-width": 3,
-                        "border-color": "#333"
-                        })
-                        .selector("edge").css({
-                        "curve-style": "bezier",
-                        "color": "data(color)",
-                        "line-color": "data(linecolor)",
-                        "target-arrow-color": "data(linecolor)",
-                        "target-arrow-shape": "triangle",
-                        "arrow-scale": 0.75,
-                        "label": "data(label)",
-                        "width": 1,
-                        "edge-text-rotation": "autorotate",
-                        "font-size": "8pt"
-                        }),
-                    elements: data["elements"],
                     });
-                    cy.on("tap", "edge", function(){
-                    if (this.data("href")) {
-                        try { // your browser may block popups
-                        window.open( this.data("href") );
-                        } catch(e){ // fall back on url change
-                        window.location.href = this.data("href");
-                        }
-                    }
-                    }); 
-                    cy.on("tap", "node", function(){
-                    if (this.data("href")) {
-                        try { // your browser may block popups
-                        window.open( this.data("href") );
-                        } catch(e){ // fall back on url change
-                        window.location.href = this.data("href");
-                        }
-                    }
-                    }); 
-                },
-                });
-                    </SCRIPT>
-                ';
-		ELSIF t_type = 'PKI Hierarchy' THEN
-			t_output := t_output ||
-                '    <TD style="padding:5px 20px">
-                    <TABLE style="width:100%;border:0px;margin-right:0px">
-                        <TR style="border:0px">
-                        <TD style="border:0px">' || pki_hierarchy(t_certificateID, t_excludeExpired IS NOT NULL) || '</TD>
-                        <TD style="border:0px">
-                            <DIV>
-                            <FONT style="color:#00CC00">Valid</FONT>
-                            <BR><FONT style="color:#CC0000;font-style:italic;text-decoration:line-through">Revoked by CRL</FONT>
-                            <BR><FONT style="color:#888888;font-style:italic;text-decoration:line-through">Expired; was observed as Revoked</FONT>
-                            <BR><FONT style="color:#888888">Expired</FONT>
-                            <BR><FONT style="color:#00007F"><B>[External Operator]</B></FONT>
-                            <BR><BR><BR><A href="/?h=' || t_certificateID::text;
-			IF coalesce(t_opt, '') != '' THEN
-				t_output := t_output || '&opt=' || rtrim(t_opt, ',');
-			END IF;
-			IF t_excludeExpired IS NULL THEN
-				t_output := t_output || '&exclude=expired">Hide expired certificates?</A>';
-			ELSE
-				t_output := t_output || '">Show expired certificates?</A>';
-			END IF;
-			t_output := t_output || '
-                        </DIV>
-                    </TD>
-                    </TR>
-                </TABLE>
-                </TD>';
-		ELSIF t_type = 'pv-certificate-viewer' THEN
-			t_output := t_output ||
-                '    <TD>
-                    <peculiar-certificate-viewer
-                        certificate="' || replace(encode(t_certificate, 'base64'), chr(10), '') || '"
-                        issuer-dn-link="?caid=' || t_issuerCAID::text || '"
-                        auth-key-id-parent-link="?ski={{authKeyId}}"
-                        subject-key-id-siblings-link="?ski={{subjectKeyId}}"
-                    />
-                ';
-		ELSE
-			t_output := t_output ||
-                '    <TD class="text">' || coalesce(t_text, '<I>Not found</I>');
-                        END IF;
+                        </SCRIPT>
+                    ';
+            ELSIF t_type = 'PKI Hierarchy' THEN
+                t_output := t_output ||
+                    '    <TD style="padding:5px 20px">
+                        <TABLE style="width:100%;border:0px;margin-right:0px">
+                            <TR style="border:0px">
+                            <TD style="border:0px">' || pki_hierarchy(t_certificateID, t_excludeExpired IS NOT NULL) || '</TD>
+                            <TD style="border:0px">
+                                <DIV>
+                                <FONT style="color:#00CC00">Valid</FONT>
+                                <BR><FONT style="color:#CC0000;font-style:italic;text-decoration:line-through">Revoked by CRL</FONT>
+                                <BR><FONT style="color:#888888;font-style:italic;text-decoration:line-through">Expired; was observed as Revoked</FONT>
+                                <BR><FONT style="color:#888888">Expired</FONT>
+                                <BR><FONT style="color:#00007F"><B>[External Operator]</B></FONT>
+                                <BR><BR><BR><A href="/?h=' || t_certificateID::text;
+                IF coalesce(t_opt, '') != '' THEN
+                    t_output := t_output || '&opt=' || rtrim(t_opt, ',');
+                END IF;
+                IF t_excludeExpired IS NULL THEN
+                    t_output := t_output || '&exclude=expired">Hide expired certificates?</A>';
+                ELSE
+                    t_output := t_output || '">Show expired certificates?</A>';
+                END IF;
+                t_output := t_output || '
+                            </DIV>
+                        </TD>
+                        </TR>
+                    </TABLE>
+                    </TD>';
+            ELSIF t_type = 'pv-certificate-viewer' THEN
+                t_output := t_output ||
+                    '    <TD>
+                        <peculiar-certificate-viewer
+                            certificate="' || replace(encode(t_certificate, 'base64'), chr(10), '') || '"
+                            issuer-dn-link="?caid=' || t_issuerCAID::text || '"
+                            auth-key-id-parent-link="?ski={{authKeyId}}"
+                            subject-key-id-siblings-link="?ski={{subjectKeyId}}"
+                        />
+                    ';
+            ELSE
+                t_output := t_output ||
+                    '    <TD class="text">' || coalesce(t_text, '<I>Not found</I>');
+                            END IF;
 
-                        t_output := t_output ||
-                '    </TD>
-                </TR>
-                </TABLE>
-                ';
+                            t_output := t_output ||
+                    '    </TD>
+                    </TR>
+                    </TABLE>
+                    ';
+        ELSIF t_outputType = 'json' THEN
+            t_output := t_output || '{';
+
+            t_certSummary := 'Leaf certificate';
+
+            -- Search for a specific Certificate.
+            IF t_type IN ('ID', 'Certificate ASN.1', 'Certification Graph', 'PKI Hierarchy', 'pv-certificate-viewer') THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE c.ID = t_value::bigint;
+            ELSIF t_type = 'SHA-1(Certificate)' THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac
+                                        ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE digest(c.CERTIFICATE, 'sha1') = t_bytea;
+            ELSIF t_type = 'SHA-256(Certificate)' THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac
+                                        ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE digest(c.CERTIFICATE, 'sha256') = t_bytea;
+            ELSIF t_type = 'Serial Number' THEN
+                SELECT c.ID, x509_print(c.CERTIFICATE, NULL, 196608), ca.ID, cac.CA_ID,
+                        digest(c.CERTIFICATE, 'sha1'::text),
+                        digest(c.CERTIFICATE, 'sha256'::text),
+                        x509_serialNumber(c.CERTIFICATE),
+                        digest(x509_publicKey(c.CERTIFICATE), 'sha256'::text),
+                        x509_rsamodulus(c.CERTIFICATE),
+                        x509_hasROCAFingerprint(c.CERTIFICATE),
+                        x509_hasClosePrimes(c.CERTIFICATE),
+                        c.CERTIFICATE
+                    INTO t_certificateID, t_text, t_issuerCAID, t_caID,
+                        t_certificateSHA1,
+                        t_certificateSHA256,
+                        t_serialNumber,
+                        t_spkiSHA256,
+                        t_rsaModulus,
+                        t_hasROCAFingerprint,
+                        t_hasClosePrimes,
+                        t_certificate
+                    FROM certificate c
+                        LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                        LEFT OUTER JOIN ca_certificate cac
+                                        ON (c.ID = cac.CERTIFICATE_ID)
+                    WHERE x509_serialNumber(c.CERTIFICATE) = t_bytea
+                    LIMIT 1;
+            END IF;
+            IF t_text IS NULL THEN
+                RAISE no_data_found USING MESSAGE = 'Certificate not found ';
+            END IF;
+
+            -- For embedded SCTs, insert the Log Names.
+            t_offset := 1;
+            LOOP
+                t_pos1 := strpos(substr(t_text, t_offset), 'Log ID    : ');
+                EXIT WHEN t_pos1 = 0;
+                t_pos1 := t_pos1 + t_offset - 1;
+                t_temp := translate(
+                    substr(t_text, t_pos1 + 12, 128), ': ' || chr(10), ''
+                );
+                SELECT ctl.NAME
+                    INTO t_temp
+                    FROM ct_log ctl
+                    WHERE digest(ctl.PUBLIC_KEY, 'sha256') = decode(t_temp, 'hex');
+                t_temp := 'Log Name  : ' || coalesce(html_escape(t_temp), 'Unknown')
+                            || chr(10) || '                    ';
+                t_text := substr(t_text, 1, t_pos1 - 1) || t_temp
+                            || substr(t_text, t_pos1);
+                t_offset := t_pos1 + length(t_temp) + 1;
+            END LOOP;
+
+            t_temp := '';
+            IF t_opt != '' THEN
+                t_temp := '&opt=' || RTRIM(t_opt, ',');
+            END IF;
+
+            IF t_caID IS NOT NULL THEN
+                IF t_caID = coalesce(t_issuerCAID, -1) THEN
+                    t_certSummary := 'Root certificate';
+                ELSE
+                    t_certSummary := 'Intermediate certificate';
+                END IF;
+            END IF;
+            t_bytea := x509_authorityKeyId(t_certificate);
+
+            t_output := t_output || '"id": ' || t_value;
+
+            t_showMetadata := lower(',' || t_opt) NOT LIKE '%,nometadata,%';
+            IF t_showMetadata THEN
+                t_output := t_output || ', "summary": "' || t_certSummary || '", "certificate_transparency": {"log_entries": ';
+
+                t_temp := '[';
+                FOR l_record IN (
+                            SELECT ctl.NAME, ctl.URL, ctl.OPERATOR, ctle.ENTRY_ID, ctle.ENTRY_TIMESTAMP
+                                FROM ct_log_entry ctle, ct_log ctl
+                                WHERE ctle.CERTIFICATE_ID = t_certificateID
+                                    AND ctle.CT_LOG_ID = ctl.ID
+                                ORDER BY ctle.ENTRY_TIMESTAMP
+                        ) LOOP
+                    IF t_temp <> '[' THEN
+                        t_temp := t_temp || ', ';
+                    END IF;
+                    t_temp := t_temp || row_to_json(l_record, FALSE);
+                END LOOP;
+                t_temp := t_temp || ']';
+                t_output := t_output || t_temp;
+                
+                IF t_caID = coalesce(t_issuerCAID, -1) THEN
+                    t_output := t_output || ', "active_logs": ';
+                    
+                    t_temp := '[';
+                    FOR l_record IN (
+                        SELECT ctl.CHROME_INCLUSION_STATUS, ctl.APPLE_INCLUSION_STATUS, ctl.OPERATOR, ctl.URL
+                            FROM accepted_roots ar, ct_log ctl
+                            WHERE ar.CERTIFICATE_ID = t_certificateID
+                                AND ar.CT_LOG_ID = ctl.ID
+                                AND ctl.IS_ACTIVE
+                            ORDER BY
+                                CASE coalesce(ctl.CHROME_INCLUSION_STATUS, '')
+                                    WHEN 'Usable' THEN 1
+                                    WHEN '' THEN 3
+                                    ELSE 2
+                                END,
+                                CASE coalesce(ctl.APPLE_INCLUSION_STATUS, '')
+                                    WHEN 'Usable' THEN 1
+                                    WHEN '' THEN 3
+                                    ELSE 2
+                                END,
+                                ctl.OPERATOR, ctl.URL
+                    ) LOOP
+                        IF t_temp <> '[' THEN
+                            t_temp := t_temp || ', ';
+                        END IF;
+                        t_temp := t_temp || row_to_json(l_record, FALSE);
+                    END LOOP;
+                    t_temp := t_temp || ']';
+                    t_output := t_output || t_temp;
+                END IF;
+
+                t_output := t_output || '}';
+
+                IF t_caID IS NOT NULL THEN
+                    t_output := t_output || ', "audit_details": {';
+                    t_temp := '[';
+                    FOR l_record IN (
+                                SELECT *
+                                    FROM ccadb_certificate cc
+                                    WHERE cc.CCADB_RECORD_ID IS NOT NULL
+                                        AND cc.CERTIFICATE_ID = t_certificateID
+                            ) LOOP
+                        IF t_temp <> '[' THEN
+                            t_temp := t_temp || ', ';
+                        END IF;
+                        t_temp := t_temp || row_to_json(l_record, FALSE);
+                    END LOOP;
+                    t_temp := t_temp || ']';
+                    t_output := t_output || t_temp;
+                END IF;
+
+                SELECT '"Revoked'
+                        || CASE coalesce(cr.REASON_CODE, 0)
+                                WHEN 0 THEN ''
+                                WHEN 1 THEN ' (keyCompromise)'
+                                WHEN 2 THEN ' (cACompromise)'
+                                WHEN 3 THEN ' (affiliationChanged)'
+                                WHEN 4 THEN ' (superseded)'
+                                WHEN 5 THEN ' (cessationOfOperation)'
+                                WHEN 6 THEN ' (certificateHold)'
+                                WHEN 8 THEN ' (removeFromCRL)'
+                                WHEN 9 THEN ' (privilegeWithdrawn)'
+                                WHEN 10 THEN ' (aACompromise)'
+                                ELSE ' (UNKNOWN)'
+                            END
+                        || '", "revocation_date": "' || cr.REVOCATION_DATE
+                        || '", "last_seen_check_date": "' || cr.LAST_SEEN_CHECK_DATE
+                    INTO t_temp0
+                    FROM crl_revoked cr
+                    WHERE cr.CA_ID = t_issuerCAID
+                        AND cr.SERIAL_NUMBER = t_serialNumber;
+                t_count := 1;
+                IF NOT FOUND THEN
+                    SELECT count(*)
+                        INTO t_count
+                        FROM crl
+                        WHERE crl.CA_ID = t_issuerCAID
+                            AND crl.ERROR_MESSAGE IS NULL
+                            AND crl.NEXT_UPDATE > now() AT TIME ZONE 'UTC';
+                    IF t_count > 0 THEN
+                        t_temp0 := '"Not Revoked';
+                    ELSE
+                        t_temp0 := '"Unknown';
+                    END IF;
+                    IF x509_notAfter(t_certificate) < now() AT TIME ZONE 'UTC' THEN
+                        t_temp0 := t_temp0 || ' (Expired)';
+                    END IF;
+
+                    t_temp0 := t_temp0 || ' "';
+
+                    t_temp0 := t_temp0 || ', "revocation_date": "n/a", "last_seen_check_date": "n/a"';
+                END IF;
+
+                SELECT max(crl.LAST_CHECKED)
+                    INTO t_temp
+                    FROM crl
+                    WHERE crl.CA_ID = t_issuerCAID;
+                t_temp0 := t_temp0 || ', "last_checked": "' || coalesce(t_temp, '') || '"';
+                -- IF t_count = 0 THEN
+                --     SELECT array_to_string(array_agg('<FONT color="#CC0000">' || html_escape(crl.ERROR_MESSAGE) || '</FONT> [' || html_escape(crl.DISTRIBUTION_POINT_URL || ']')), '<BR>')
+                --         INTO t_temp
+                --         FROM crl
+                --         WHERE crl.CA_ID = t_issuerCAID
+                --             AND crl.ERROR_MESSAGE IS NOT NULL;
+                --     IF t_temp IS NOT NULL THEN
+                --         t_temp0 := t_temp0 || '<BR><SPAN style="vertical-align:middle;font-size:70%">' || coalesce(t_temp, '') || '</SPAN>';
+                --     END IF;
+                -- END IF;
+
+                SELECT '"Revoked [by ' || gr.ENTRY_TYPE || ']"'
+                    INTO t_temp
+                    FROM google_revoked gr
+                    WHERE gr.CERTIFICATE_ID = t_certificateID;
+                t_temp := coalesce(t_temp, '"Not Revoked"');
+
+                SELECT '"Revoked' ||
+                        CASE length(mdc.DISALLOWED_HASH)
+                            WHEN 16 THEN ' [by MD5(PublicKey)]'
+                            WHEN 48 THEN ' [by SHA-384(TBSCertificate)]'
+                        END || '"'
+                    INTO t_temp2
+                    FROM microsoft_disallowedcert mdc
+                    WHERE mdc.CERTIFICATE_ID = t_certificateID;
+                t_temp2 := coalesce(t_temp2, '"Not Revoked"');
+
+                SELECT '"Revoked [by ' || mo.ENTRY_TYPE::text || ']"'
+                        || CASE WHEN mo.CREATED IS NOT NULL
+                            THEN ', "revocation_date": ' || mo.CREATED || '"'
+                            ELSE ', "revocation_date": "Unknown"'
+                            END
+                    INTO t_temp3
+                    FROM mozilla_onecrl mo
+                    WHERE mo.CERTIFICATE_ID = t_certificateID;
+                t_temp3 := coalesce(t_temp3, '"Not Revoked", "revocation_date": "n/a"');
+
+                IF lower(',' || t_opt) LIKE '%,ocsp,%' THEN
+                    SELECT coalesce(c2.CERTIFICATE, c1.CERTIFICATE)
+                        INTO t_issuerCertificate
+                        FROM ca_certificate cac1, certificate c1
+                            LEFT JOIN LATERAL (
+                                SELECT c2.CERTIFICATE
+                                    FROM ca_certificate cac2, certificate c2
+                                    WHERE cac2.CA_ID = c1.ISSUER_CA_ID
+                                        AND cac2.CERTIFICATE_ID = c2.ID
+                                        AND EXISTS (SELECT 1 FROM x509_extKeyUsages(c1.CERTIFICATE) WHERE x509_extKeyUsages = '1.3.6.1.4.1.11129.2.4.4')
+                                    LIMIT 1
+                            ) c2 ON TRUE
+                        WHERE cac1.CA_ID = t_issuerCAID
+                            AND cac1.CERTIFICATE_ID = c1.ID
+                        LIMIT 1;
+                    t_temp4 := ocsp_embedded(t_certificate, t_issuerCertificate);
+                    IF t_temp4 LIKE 'Good%' THEN
+                        t_temp4 := '"Good", "revocation_date": "n/a", "last_seen_check_date": "n/a"';
+                    ELSIF t_temp4 LIKE 'Revoked%' THEN
+                        t_offset := position('|' in t_temp4);
+                        t_pos1 := position('|' in substring(t_temp4 from t_offset + 1)) + t_offset;
+                        t_temp5 := '"Revoked' || CASE coalesce(nullif(substring(t_temp4 from (t_pos1 + 1)), ''), '0')
+                                WHEN '0' THEN ''
+                                WHEN '1' THEN ' (keyCompromise)'
+                                WHEN '2' THEN ' (cACompromise)'
+                                WHEN '3' THEN ' (affiliationChanged)'
+                                WHEN '4' THEN ' (superseded)'
+                                WHEN '5' THEN ' (cessationOfOperation)'
+                                WHEN '6' THEN ' (certificateHold)'
+                                WHEN '8' THEN ' (removeFromCRL)'
+                                WHEN '9' THEN ' (privilegeWithdrawn)'
+                                WHEN '10' THEN ' (aACompromise)'
+                                ELSE ' (UNKNOWN)'
+                            END || '"';
+                        t_temp4 := t_temp5 || '", "revocation_date":"' || substring(t_temp4 from (t_offset + 1) for 19)::timestamp || '", "last_seen_check_date": "n/a"';
+                    ELSIF t_temp4 LIKE 'Unknown%' THEN
+                        t_temp4 := '"Unknown", "revocation_date": "n/a", "last_seen_check_date": "n/a"';
+                    ELSE	-- "No OCSP URL Available" or error.
+                        t_temp4 := '"' || t_temp4 || '", "revocation_date": "n/a", "last_seen_check_date": "n/a"';
+                    END IF;
+                    t_temp4 := t_temp4 || ', "last_checked": "' ||  now() AT TIME ZONE 'UTC' || '"';
+                ELSE
+                    t_temp4 := '"Unchecked", "revocation_date": "?", "last_seen_check_date": "n/a", "last_checked": "?"';
+                END IF;
+
+                t_output := t_output ||
+                    ',
+                    "revocation": [
+                        {
+                            "mechanism": "OCSP",
+                            "provider": "The CA",
+                            "status": ' || t_temp4 || '
+                        },
+                        {
+                            "mechanism": "CRL",
+                            "provider": "The CA",
+                            "status": ' || t_temp0 || '
+                        },
+                        {
+                            "mechanism": "CRLSet/Blocklist",
+                            "provider": "Google",
+                            "status": ' || t_temp || ',
+                            "revocation_date": "n/a",
+                            "last_seen_check_date": "n/a",
+                            "last_checked": "n/a"
+                        },
+                        {
+                            "mechanism": "disallowedcert.stl",
+                            "provider": "Microsoft",
+                            "status": ' || t_temp2 || ',
+                            "revocation_date": "n/a",
+                            "last_seen_check_date": "n/a",
+                            "last_checked": "n/a"
+                        },
+                        {
+                            "mechanism": "<A>OneCRL</A>",
+                            "provider": "Mozilla",
+                            "status": ' || t_temp3 || ',
+                            "last_seen_check_date": "n/a",
+                            "last_checked": "n/a"
+                        }
+                    ]
+                    ';
+                IF lower(',' || t_opt) LIKE '%,problemreporting,%' THEN
+                    SELECT cco.PROBLEM_REPORTING
+                        INTO t_temp3
+                        FROM ca_certificate cac, ccadb_certificate cc, ccadb_caowner cco, ca_trust_purpose ctp, certificate c
+                        WHERE cac.CA_ID = t_issuerCAID
+                            AND cac.CERTIFICATE_ID = cc.CERTIFICATE_ID
+                            AND cc.INCLUDED_CERTIFICATE_OWNER = cco.CA_OWNER_NAME
+                            AND cac.CA_ID = ctp.CA_ID
+                            AND cac.CERTIFICATE_ID = c.ID
+                        GROUP BY cco.PROBLEM_REPORTING
+                        ORDER BY min(ctp.SHORTEST_CHAIN), max(x509_notAfter(c.CERTIFICATE)) DESC
+                        LIMIT 1;
+
+                    IF trim(coalesce(t_temp3, '')) = '' THEN
+                        t_temp3 := 'Unknown';
+                    END IF;
+                    t_output := t_output || ', "problem_reporting": "' || t_temp3 || '"';    
+                END IF;
+            END IF;
+
+            t_output := t_output || '}';
+        END IF;
 
 	ELSIF t_type IN ('CA ID', 'CA Name') THEN
 		t_output := t_output || ' <SPAN class="whiteongrey">CA Search</SPAN>
