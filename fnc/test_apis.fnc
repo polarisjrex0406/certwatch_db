@@ -215,14 +215,14 @@ BEGIN
 						NULL;
 				END;
 			ELSIF t_type IN (
-						'Simple', 'Advanced', 'CA Name'
+						'Simple', 'Advanced'
 					) THEN
 				EXIT;
 			ELSIF t_type IN (
 						'CA/B Forum lint', 'X.509 lint', 'ZLint', 'keylint', 'Lint',
 						'Identity', 'Common Name', 'Email Address',
 						'Organizational Unit Name', 'Organization Name',
-						'Domain Name', 'Email Address (SAN)', 'IP Address'
+						'Domain Name', 'Email Address (SAN)', 'IP Address', 'CA Name'
 					) THEN
 				t_isJSONOutputSupported := TRUE;
 				EXIT;
@@ -294,12 +294,6 @@ BEGIN
 	END IF;
 
 	IF (t_outputType = 'json') AND t_isJSONOutputSupported THEN
-		t_output :=
-            '[BEGIN_HEADERS]
-            Content-Type: application/json
-            Access-Control-Allow-Origin: *
-            [END_HEADERS]
-            ';
 	ELSIF t_outputType NOT IN ('html', 'atom', 'csv') THEN
 		RAISE no_data_found USING MESSAGE = 'Unsupported output type: ' || html_escape(t_outputType);
 	END IF;
@@ -4796,6 +4790,32 @@ BEGIN
                     END IF;
                     t_output := t_output || '", "subject_name": "' || l_record.SUBJECT_NAME || '"';
                 END LOOP;
+                t_output := t_output || ']';
+            -- Search for (potentially) multiple CAs.
+            ELSE	/* CA Name */
+                t_output := t_output || '[';
+                t_query := 'SELECT ca.ID, ca.NAME' || chr(10) ||
+                            '	FROM ca' || chr(10);
+                IF t_useReverseIndex THEN
+                    t_query := t_query ||
+                            '	WHERE reverse(lower(ca.NAME)) LIKE reverse(lower($1))' || chr(10);
+                ELSE
+                    t_query := t_query ||
+                            '	WHERE lower(ca.NAME) LIKE lower($1)' || chr(10);
+                END IF;
+
+                t_query := t_query ||
+                            '	ORDER BY ca.NAME';
+                FOR l_record IN EXECUTE t_query
+                                USING t_value LOOP
+                    t_output := t_output || row_to_json(l_record, FALSE);
+                END LOOP;
+                IF t_text IS NOT NULL THEN
+                    t_text := t_text ||
+                        '</TABLE>
+                        ';
+                END IF;
+
                 t_output := t_output || ']';
             END IF;
 
