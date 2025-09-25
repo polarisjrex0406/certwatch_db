@@ -4529,7 +4529,7 @@ BEGIN
                         t_temp := t_temp || row_to_json(l_record, FALSE);
                     END LOOP;
                     t_temp := t_temp || ']';
-                    t_output := t_output || t_temp;
+                    t_output := t_output || t_temp || '}';
                 END IF;
 
                 t_showX509Lint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,x509lint,%';
@@ -4568,7 +4568,7 @@ BEGIN
                         t_temp := t_temp || row_to_json(l_record, FALSE);
                     END LOOP;
                     t_temp := t_temp || ']';
-                    t_output := t_output || t_temp;
+                    t_output := t_output || t_temp || '}';
                 END IF;
 
                 t_showZLint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,zlint,%';
@@ -4607,8 +4607,145 @@ BEGIN
                         t_temp := t_temp || row_to_json(l_record, FALSE);
                     END LOOP;
                     t_temp := t_temp || ']';
-                    t_output := t_output || t_temp;
+                    t_output := t_output || t_temp || '}';
                 END IF;
+
+                t_output := t_output ||
+                    ', "issued_certificates": {"certificates": {"unexpired": ' || (coalesce(t_numIssued[1], 0) - coalesce(t_numExpired[1], 0))::text ||
+                    ', "expired": ' || coalesce(t_numExpired[1], 0)::text ||
+                    '}, "precertificates": {"unexpired": ' || (coalesce(t_numIssued[2], 0) - coalesce(t_numExpired[2], 0))::text ||
+                    ', "expired": ' || coalesce(t_numExpired[2], 0)::text ||
+                    '}}';
+                
+                t_output := t_output || ', "trust": [';
+
+                t_text := '';
+                t_temp := '';
+
+                t_purposeOID := '';
+                FOR l_record IN (
+                            SELECT trustsrc.TRUST_CONTEXT_ID,
+                                    trustsrc.TRUST_CONTEXT_CTX,
+                                    trustsrc.TRUST_CONTEXT_URL,
+                                    trustsrc.PURPOSE,
+                                    trustsrc.PURPOSE_OID,
+                                    (ctp.CA_ID IS NOT NULL) HAS_TRUST,
+                                    (ap.PURPOSE IS NOT NULL) IS_APPLICABLE,
+                                    ctp.IS_TIME_VALID,
+                                    ctp.SHORTEST_CHAIN,
+                                    ctp.ALL_CHAINS_REVOKED_VIA_ONECRL,
+                                    ctp.ALL_CHAINS_REVOKED_VIA_CRLSET,
+                                    ctp.ALL_CHAINS_REVOKED_VIA_DISALLOWEDSTL,
+                                    ctp.ALL_CHAINS_TECHNICALLY_CONSTRAINED,
+                                    ctp.DISABLED_FROM,
+                                    ctp.NOTBEFORE_UNTIL
+                                FROM (SELECT tc.DISPLAY_ORDER CTX_DISPLAY_ORDER,
+                                                tc.ID TRUST_CONTEXT_ID,
+                                                tc.CTX TRUST_CONTEXT_CTX,
+                                                tc.URL TRUST_CONTEXT_URL,
+                                                tp.ID TRUST_PURPOSE_ID,
+                                                tp.DISPLAY_ORDER,
+                                                tp.PURPOSE,
+                                                tp.PURPOSE_OID
+                                            FROM trust_purpose tp, trust_context tc
+                                            WHERE tp.PURPOSE NOT IN ('EV Server Authentication', 'Qualified Website Authentication')
+                                        UNION
+                                        SELECT tc.DISPLAY_ORDER CTX_DISPLAY_ORDER,
+                                                tc.ID TRUST_CONTEXT_ID,
+                                                tc.CTX TRUST_CONTEXT_CTX,
+                                                tc.URL TRUST_CONTEXT_URL,
+                                                tp.ID TRUST_PURPOSE_ID,
+                                                tp.DISPLAY_ORDER,
+                                                tp.PURPOSE,
+                                                tp.PURPOSE_OID
+                                            FROM ca_trust_purpose ctp_ev, trust_purpose tp, trust_context tc
+                                            WHERE ctp_ev.CA_ID = t_caID
+                                                AND ctp_ev.TRUST_PURPOSE_ID = tp.ID
+                                                AND tp.PURPOSE IN ('EV Server Authentication', 'Qualified Website Authentication')
+                                            GROUP BY tc.CTX, tc.ID, tp.ID, tp.DISPLAY_ORDER, tp.PURPOSE, tp.PURPOSE_OID
+                                        ) trustsrc
+                                    LEFT OUTER JOIN ca_trust_purpose ctp ON (
+                                        ctp.CA_ID = t_caID
+                                        AND trustsrc.TRUST_CONTEXT_ID = ctp.TRUST_CONTEXT_ID
+                                        AND trustsrc.TRUST_PURPOSE_ID = ctp.TRUST_PURPOSE_ID
+                                    )
+                                    LEFT OUTER JOIN applicable_purpose ap ON (
+                                        trustsrc.TRUST_CONTEXT_ID = ap.TRUST_CONTEXT_ID
+                                        AND trustsrc.PURPOSE = ap.PURPOSE
+                                    )
+                                ORDER BY trustsrc.DISPLAY_ORDER, trustsrc.PURPOSE_OID, trustsrc.CTX_DISPLAY_ORDER
+                        ) LOOP
+                    IF (t_purposeOID != l_record.PURPOSE_OID) OR (t_purpose != l_record.PURPOSE) THEN
+                        t_purposeOID := l_record.PURPOSE_OID;
+                        t_purpose := l_record.PURPOSE;
+
+                        IF t_text <> '' THEN
+                            t_text := t_text || t_temp;
+                            t_text := t_text || ']},';
+                        END IF;
+                        t_text := t_text || '{"purpose": "' || l_record.PURPOSE;
+                        IF l_record.PURPOSE = 'EV Server Authentication' THEN
+                            t_text := t_text || ' (' || l_record.PURPOSE_OID || ')';
+                        END IF;
+                        t_text := t_text || '", "context": [';
+                        t_temp := '';
+                    END IF;
+
+                    IF t_temp <> '' THEN
+                        t_temp := t_temp || ',';
+                    END IF;
+                    t_temp := t_temp || '{';
+
+                    IF (l_record.TRUST_CONTEXT_ID = 6) AND (l_record.IS_APPLICABLE) THEN
+                        SELECT true
+                            INTO l_record.ALL_CHAINS_REVOKED_VIA_CRLSET
+                            FROM ca_trust_purpose ctp
+                            WHERE ctp.CA_ID = t_caID
+                                AND ctp.TRUST_PURPOSE_ID = 1
+                                AND ctp.ALL_CHAINS_REVOKED_VIA_CRLSET
+                            LIMIT 1;
+                    END IF;
+
+                    t_temp := t_temp || '"ctx": "' || l_record.TRUST_CONTEXT_CTX || '"';
+                    t_temp := t_temp || ', "url": "' || l_record.TRUST_CONTEXT_URL || '"';
+
+                    t_temp := t_temp || ', "status": "';
+                    IF NOT l_record.IS_APPLICABLE THEN
+                        t_temp := t_temp || 'n/a';
+                        l_record.SHORTEST_CHAIN := NULL;
+                    ELSIF l_record.ALL_CHAINS_REVOKED_VIA_ONECRL AND (l_record.TRUST_CONTEXT_ID = 5) THEN
+                        t_temp := t_temp || 'Revoked via OneCRL';
+                    ELSIF l_record.ALL_CHAINS_REVOKED_VIA_CRLSET AND (l_record.TRUST_CONTEXT_ID = 6) THEN
+                        t_temp := t_temp || 'Revoked via CRLSet / Blocklist';
+                    ELSIF l_record.ALL_CHAINS_REVOKED_VIA_DISALLOWEDSTL AND (l_record.TRUST_CONTEXT_ID = 1) THEN
+                        t_temp := t_temp || 'Revoked via disallowedcert.stl';
+                    ELSIF NOT l_record.HAS_TRUST THEN
+                        t_temp := t_temp || 'No';
+                        l_record.SHORTEST_CHAIN := NULL;
+                    ELSIF NOT l_record.IS_TIME_VALID THEN
+                        t_temp := t_temp || 'Expired';
+                    ELSIF l_record.ALL_CHAINS_TECHNICALLY_CONSTRAINED THEN
+                        t_temp := t_temp || 'Constrained';
+                    ELSE
+                        t_temp := t_temp || 'Valid';
+                    END IF;
+                    IF l_record.SHORTEST_CHAIN IS NOT NULL THEN
+                        t_temp := t_temp || l_record.SHORTEST_CHAIN;
+                    END IF;
+                    IF l_record.DISABLED_FROM IS NOT NULL THEN
+                        t_temp := t_temp || l_record.DISABLED_FROM::date;
+                    END IF;
+                    IF l_record.NOTBEFORE_UNTIL IS NOT NULL THEN
+                        t_temp := t_temp || l_record.NOTBEFORE_UNTIL::date;
+                    END IF;
+
+                    t_temp := t_temp || '"}';
+                END LOOP;
+
+                t_text := t_text || t_temp;
+                t_output := t_output || t_text || ']}';
+
+                t_output := t_output || ']';
 
             END IF;
 
