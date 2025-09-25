@@ -4492,6 +4492,124 @@ BEGIN
                 t_output := t_output ||
                     ']
                     ';
+
+                t_showCABLint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,cablint,%';
+                IF t_showCABLint THEN
+                    t_output := t_output ||
+                        ', "cab_lint": {' ||
+                        '"not_before": "' || t_minNotBefore || '"' ||
+                        ', "issued_certificates": 
+                        ';
+                    t_temp := '[';
+                    FOR l_record IN (
+                                SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 1
+                                            WHEN 'E' THEN 2
+                                            WHEN 'W' THEN 3
+                                            ELSE 4
+                                        END ISSUE_TYPE,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 'FATAL:'
+                                            WHEN 'E' THEN 'ERROR:'
+                                            WHEN 'W' THEN 'WARNING:'
+                                            ELSE li.SEVERITY || ':'
+                                        END ISSUE_HEADING
+                                    FROM lint_summary ls, lint_issue li
+                                    WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
+                                        AND ls.ISSUER_CA_ID = t_value::integer
+                                        AND ls.LINT_ISSUE_ID = li.ID
+                                        AND li.LINTER = 'cablint'
+                                    GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
+                                    ORDER BY ISSUE_TYPE, NUM_CERTS DESC
+                            ) LOOP
+                        IF t_temp <> '[' THEN
+                            t_temp := t_temp || ', ';
+                        END IF;
+                        t_temp := t_temp || row_to_json(l_record, FALSE);
+                    END LOOP;
+                    t_temp := t_temp || ']';
+                    t_output := t_output || t_temp;
+                END IF;
+
+                t_showX509Lint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,x509lint,%';
+                IF t_showX509Lint THEN
+                    t_output := t_output ||
+                        ', "x509_lint": {' ||
+                        '"not_before": "' || t_minNotBefore || '"' ||
+                        ', "issued_certificates": 
+                        ';
+                    t_temp := '[';
+                    FOR l_record IN (
+                                SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 1
+                                            WHEN 'E' THEN 2
+                                            WHEN 'W' THEN 3
+                                            ELSE 4
+                                        END ISSUE_TYPE,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 'FATAL:'
+                                            WHEN 'E' THEN 'ERROR:'
+                                            WHEN 'W' THEN 'WARNING:'
+                                            ELSE li.SEVERITY || ':'
+                                        END ISSUE_HEADING
+                                    FROM lint_summary ls, lint_issue li
+                                    WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
+                                        AND ls.ISSUER_CA_ID = t_value::integer
+                                        AND ls.LINT_ISSUE_ID = li.ID
+                                        AND li.LINTER = 'x509lint'
+                                    GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
+                                    ORDER BY ISSUE_TYPE, NUM_CERTS DESC
+                            ) LOOP
+                        IF t_temp <> '[' THEN
+                            t_temp := t_temp || ', ';
+                        END IF;
+                        t_temp := t_temp || row_to_json(l_record, FALSE);
+                    END LOOP;
+                    t_temp := t_temp || ']';
+                    t_output := t_output || t_temp;
+                END IF;
+
+                t_showZLint := (',' || coalesce(get_parameter('opt', paramNames, paramValues), '') || ',') LIKE '%,zlint,%';
+                IF t_showZLint THEN
+                    t_output := t_output ||
+                        ', "zlint": {' ||
+                        '"not_before": "' || t_minNotBefore || '"' ||
+                        ', "issued_certificates": 
+                        ';
+                    t_temp := '[';
+                    FOR l_record IN (
+                                SELECT sum(ls.NO_OF_CERTS) NUM_CERTS, li.ID, li.SEVERITY, li.ISSUE_TEXT,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 1
+                                            WHEN 'E' THEN 2
+                                            WHEN 'W' THEN 3
+                                            ELSE 4
+                                        END ISSUE_TYPE,
+                                        CASE li.SEVERITY
+                                            WHEN 'F' THEN 'FATAL:'
+                                            WHEN 'E' THEN 'ERROR:'
+                                            WHEN 'W' THEN 'WARNING:'
+                                            ELSE li.SEVERITY || ':'
+                                        END ISSUE_HEADING
+                                    FROM lint_summary ls, lint_issue li
+                                    WHERE ls.NOT_BEFORE_DATE >= t_minNotBefore
+                                        AND ls.ISSUER_CA_ID = t_value::integer
+                                        AND ls.LINT_ISSUE_ID = li.ID
+                                        AND li.LINTER = 'zlint'
+                                    GROUP BY li.ID, li.SEVERITY, li.ISSUE_TEXT
+                                    ORDER BY ISSUE_TYPE, NUM_CERTS DESC
+                            ) LOOP
+                        IF t_temp <> '[' THEN
+                            t_temp := t_temp || ', ';
+                        END IF;
+                        t_temp := t_temp || row_to_json(l_record, FALSE);
+                    END LOOP;
+                    t_temp := t_temp || ']';
+                    t_output := t_output || t_temp;
+                END IF;
+
             END IF;
 
             t_output := t_output || '}';
