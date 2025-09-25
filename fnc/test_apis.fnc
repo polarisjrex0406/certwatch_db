@@ -4744,9 +4744,59 @@ BEGIN
 
                 t_text := t_text || t_temp;
                 t_output := t_output || t_text || ']}';
-
                 t_output := t_output || ']';
 
+                t_output := t_output || ', "parent_cas": [';
+                FOR l_record IN (
+                            SELECT x509_issuerName(c.CERTIFICATE)	ISSUER_NAME,
+                                    c.ISSUER_CA_ID
+                                FROM ca_certificate cac, certificate c
+                                    LEFT OUTER JOIN ca ON (c.ISSUER_CA_ID = ca.ID)
+                                WHERE cac.CA_ID = t_caID
+                                    AND cac.CERTIFICATE_ID = c.ID
+                                    AND c.ISSUER_CA_ID != t_caID
+                                GROUP BY x509_issuerName(c.CERTIFICATE),
+                                        c.ISSUER_CA_ID
+                                ORDER BY x509_issuerName(c.CERTIFICATE)
+                        ) LOOP
+                    t_output := t_output || '{"ca_id": "';
+                    IF l_record.ISSUER_CA_ID IS NULL THEN
+                        t_output := t_output || 'n/a';
+                    ELSE
+                        t_output := t_output || l_record.ISSUER_CA_ID::text;
+                    END IF;
+                    t_output := t_output || '", "ca_name": "' || l_record.ISSUER_NAME || '"';
+                    t_output := t_output || '}';
+                END LOOP;
+                t_output := t_output || ']';
+
+                t_output := t_output || ', "child_cas": [';
+                FOR l_record IN (
+                    WITH child_certificate AS MATERIALIZED (
+                        SELECT c.ID, x509_subjectName(c.CERTIFICATE) SUBJECT_NAME
+                            FROM certificate c
+                            WHERE c.ISSUER_CA_ID = t_caID
+                                AND x509_canIssueCerts(c.CERTIFICATE)
+                    )
+                    SELECT child_certificate.SUBJECT_NAME,
+                            cac.CA_ID
+                        FROM child_certificate,
+                            ca_certificate cac
+                                LEFT OUTER JOIN ca ON (cac.CA_ID = ca.ID)
+                        WHERE child_certificate.ID = cac.CERTIFICATE_ID
+                            AND cac.CA_ID != t_caID
+                        GROUP BY child_certificate.SUBJECT_NAME, cac.CA_ID
+                        ORDER BY child_certificate.SUBJECT_NAME
+                ) LOOP
+                    t_output := t_output || '{"ca_id": "';
+                    IF l_record.CA_ID IS NULL THEN
+                        t_output := t_output || 'n/a';
+                    ELSE
+                        t_output := t_output || l_record.ISSUER_CA_ID::text;
+                    END IF;
+                    t_output := t_output || '", "subject_name": "' || l_record.SUBJECT_NAME || '"';
+                END LOOP;
+                t_output := t_output || ']';
             END IF;
 
             t_output := t_output || '}';
