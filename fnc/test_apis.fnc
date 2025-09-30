@@ -3413,21 +3413,21 @@ BEGIN
                 t_output := t_output || '}';
 
                 IF t_caID IS NOT NULL THEN
-                    t_output := t_output || ', "audit_details": {';
-                    t_temp := '[';
+                    t_output := t_output || ', "audit_details": [';
+                    t_temp := '';
                     FOR l_record IN (
                                 SELECT *
                                     FROM ccadb_certificate cc
                                     WHERE cc.CCADB_RECORD_ID IS NOT NULL
                                         AND cc.CERTIFICATE_ID = t_certificateID
                             ) LOOP
-                        IF t_temp <> '[' THEN
+                        IF t_temp <> '' THEN
                             t_temp := t_temp || ', ';
                         END IF;
                         t_temp := t_temp || row_to_json(l_record, FALSE);
                     END LOOP;
-                    t_temp := t_temp || ']';
-                    t_output := t_output || t_temp;
+                    t_temp := t_temp;
+                    t_output := t_output || t_temp || ']';
                 END IF;
 
                 SELECT '"Revoked'
@@ -3622,12 +3622,18 @@ BEGIN
                 '"sha256": "' || coalesce(upper(encode(t_certificateSHA256, 'hex')), '') || '"' ||
                 ', "sha1": "' || coalesce(upper(encode(t_certificateSHA1, 'hex')), '') || '"}';
 
+            IF t_certificate IS NULL THEN
+                t_text := '';
+            ELSE
+                 t_text:= substr(t_certificate::text, 3);
+            END IF;
+
             IF t_type = 'Certificate ASN.1' THEN
             ELSIF t_type = 'Certification Graph' THEN
             ELSIF t_type = 'PKI Hierarchy' THEN
             ELSIF t_type = 'pv-certificate-viewer' THEN
             ELSE
-                t_output := t_output || ', "certificate": "' || coalesce(t_text, '') || '"';
+                t_output := t_output || ', "certificate": "' || t_text || '"';
             END IF;
 
             t_output := t_output || '}';
