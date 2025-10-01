@@ -4384,8 +4384,6 @@ BEGIN
                     ';
             END IF;
         ELSIF t_outputType = 'json' THEN
-            t_output := t_output || '{';
-
             -- Determine whether to use a reverse index (if available).
             IF position('%' IN t_value) != 0 THEN
                 t_useReverseIndex := (
@@ -4395,6 +4393,7 @@ BEGIN
 
             -- Search for a specific CA.
             IF t_type = 'CA ID' THEN
+                t_output := '{';
                 SELECT ca.ID, ca.NAME, ca.PUBLIC_KEY, ca.NUM_ISSUED, ca.NUM_EXPIRED
                     INTO t_caID, t_caName, t_caPublicKey, t_numIssued, t_numExpired
                     FROM ca
@@ -4411,8 +4410,8 @@ BEGIN
                     FROM ca_certificate cac
                     WHERE cac.CA_ID = t_caID;
                 IF t_certificateID IS NOT NULL THEN
-                    SELECT html_escape(x509_print(c.CERTIFICATE, NULL, 7999))
-                        INTO t_text
+                    SELECT html_escape(x509_print(c.CERTIFICATE, NULL, 7999)), c.CERTIFICATE
+                        INTO t_text, t_certificate
                         FROM certificate c
                         WHERE c.ID = t_certificateID;
                     t_text := replace(t_text, '        Subject:', 'Subject:');
@@ -4425,6 +4424,12 @@ BEGIN
                 END IF;
 
                 t_output := t_output || '"ca_id": ' || t_caID::text;
+
+                IF t_certificate IS NULL THEN
+                    t_text := '';
+                ELSE
+                    t_text:= substr(t_certificate::text, 3);
+                END IF;
                 t_output := t_output || ', "ca_name_key": "' || t_text || '"';
 
                 t_output := t_output || ', "certificates": [';
@@ -4747,6 +4752,7 @@ BEGIN
                 t_output := t_output || ']';
 
                 t_output := t_output || ', "parent_cas": [';
+                t_temp := '';
                 FOR l_record IN (
                             SELECT x509_issuerName(c.CERTIFICATE)	ISSUER_NAME,
                                     c.ISSUER_CA_ID
@@ -4759,18 +4765,22 @@ BEGIN
                                         c.ISSUER_CA_ID
                                 ORDER BY x509_issuerName(c.CERTIFICATE)
                         ) LOOP
-                    t_output := t_output || '{"ca_id": "';
-                    IF l_record.ISSUER_CA_ID IS NULL THEN
-                        t_output := t_output || 'n/a';
-                    ELSE
-                        t_output := t_output || l_record.ISSUER_CA_ID::text;
+                    IF t_temp <> '' THEN
+                        t_temp := t_temp || ',';
                     END IF;
-                    t_output := t_output || '", "ca_name": "' || l_record.ISSUER_NAME || '"';
-                    t_output := t_output || '}';
+                    t_temp := t_temp || '{"ca_id": "';
+                    IF l_record.ISSUER_CA_ID IS NULL THEN
+                        t_temp := t_temp || 'n/a';
+                    ELSE
+                        t_temp := t_temp || l_record.ISSUER_CA_ID::text;
+                    END IF;
+                    t_temp := t_temp || '", "ca_name": "' || l_record.ISSUER_NAME || '"';
+                    t_temp := t_temp || '}';
                 END LOOP;
-                t_output := t_output || ']';
+                t_output := t_output || t_temp || ']';
 
                 t_output := t_output || ', "child_cas": [';
+                t_temp := '';
                 FOR l_record IN (
                     WITH child_certificate AS MATERIALIZED (
                         SELECT c.ID, x509_subjectName(c.CERTIFICATE) SUBJECT_NAME
@@ -4788,18 +4798,22 @@ BEGIN
                         GROUP BY child_certificate.SUBJECT_NAME, cac.CA_ID
                         ORDER BY child_certificate.SUBJECT_NAME
                 ) LOOP
-                    t_output := t_output || '{"ca_id": "';
-                    IF l_record.CA_ID IS NULL THEN
-                        t_output := t_output || 'n/a';
-                    ELSE
-                        t_output := t_output || l_record.ISSUER_CA_ID::text;
+                    IF t_temp <> '' THEN
+                        t_temp := t_temp || ',';
                     END IF;
-                    t_output := t_output || '", "subject_name": "' || l_record.SUBJECT_NAME || '"';
+                    t_temp := t_temp || '{"ca_id": "';
+                    IF l_record.CA_ID IS NULL THEN
+                        t_temp := t_temp || 'n/a';
+                    ELSE
+                        t_temp := t_temp || l_record.CA_ID::text;
+                    END IF;
+                    t_temp := t_temp || '", "subject_name": "' || l_record.SUBJECT_NAME || '"}';
                 END LOOP;
-                t_output := t_output || ']';
+                t_output := t_output || t_temp || ']';
+                t_output := t_output || '}';
             -- Search for (potentially) multiple CAs.
             ELSE	/* CA Name */
-                t_output := t_output || '[';
+                t_output := '[';
                 t_query := 'SELECT ca.ID, ca.NAME' || chr(10) ||
                             '	FROM ca' || chr(10);
                 IF t_useReverseIndex THEN
@@ -4825,7 +4839,6 @@ BEGIN
                 t_output := t_output || ']';
             END IF;
 
-            t_output := t_output || '}';
         END IF;
 
 	ELSIF t_type IN (
